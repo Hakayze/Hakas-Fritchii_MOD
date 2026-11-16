@@ -18,7 +18,7 @@ O nome oficial é **Hakas-Fritchii_MOD**. “Fritchii Cinematic UI” é o títu
 | Qt Quick 3D | Câmera, caixas, materiais e inspeção |
 | Sistema de emulação existente | Executar jogos, renderizar, preservar configurações e saves |
 
-A primeira opção de hospedagem a testar é `QQuickView` com `QWidget::createWindowContainer`. A comparação com `QQuickWidget` será decidida no protótipo por comportamento, compatibilidade e custo medidos.
+O protótipo M1 usa `QQuickView` com `QWidget::createWindowContainer`. A comparação com `QQuickWidget` continua pendente dos testes de comportamento, compatibilidade e custo.
 
 A nova biblioteca deverá observar os dados existentes. Não criar um segundo scanner de jogos, contador de tempo ou caminho alternativo de boot.
 
@@ -30,7 +30,7 @@ A nova biblioteca deverá observar os dados existentes. Não criar um segundo sc
 | BoxShelf source, branch main | `068ef313d8a24e4a7ac8f9fb94e8055066216afa` |
 | BoxShelf beta, branch main | `043d6b7cf5cf3456251ab04b4eeb046062459940` |
 
-O fork foi conferido contra a mesma base do Fritchii em 16/11/2026. A pesquisa original contém observações de código e vídeo; esta publicação de documentação não representa nova execução do emulador.
+O fork foi conferido contra a mesma base do Fritchii em 16/11/2026. O [registro de M0](M0_VALIDATION.md) distingue a compilação no CI da abertura confirmada pelo usuário. O [protótipo M1](M1_PROTOTYPE.md) tem testes próprios; ainda não houve validação de fidelidade visual do novo frontend contra o vídeo.
 
 O vídeo de referência não está incluído neste repositório. Para revisão visual, fornecê-lo junto à tarefa; a descrição textual não substitui a gravação.
 
@@ -46,15 +46,14 @@ Em caso de divergência com o relatório histórico, as decisões atuais estão 
 
 ## Estado e branches
 
-- `nx2`: código-base herdado e documentação inicial do projeto.
-- `feat/cinematic-ui`: branch prevista para iniciar o desenvolvimento da nova interface.
+- `nx2`: base clássica, documentação e CI integrados no PR #1.
+- `feat/cinematic-ui`: protótipo M1 opcional, com host nativo, cena de teste e CI Windows ON/OFF, em revisão no PR #2.
 - Mudanças de implementação devem permanecer pequenas, revisáveis e acompanhadas de resultados reais.
 
-A preparação documental não conclui M0. Nenhuma versão do Windows, GPU ou desempenho foi validada pelo Hakas até esta publicação.
+O build e a abertura clássica atendem ao critério mínimo de M0. A versão/build do Windows e o hardware da máquina do usuário ainda não foram registrados; instalação limpa, compatibilidade ampla, renderização do protótipo e desempenho continuam pendentes.
 
 ## Regras para implementação
 
 Consultar [AGENTS.md](../../AGENTS.md), [Coding.md](../Coding.md) e os guias herdados aplicáveis. Caminhos e máquinas citados nos documentos upstream não devem ser assumidos como o ambiente de Cassiano.
 
 Preservar licenças e proveniência, limitar alterações ao frontend e registrar qualquer necessidade de mudança estrutural antes de ampliar o escopo.
-

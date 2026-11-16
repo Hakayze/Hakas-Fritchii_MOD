@@ -72,6 +72,7 @@ endif()
 
 # qt stuff
 option(ENABLE_QT "Enable the Qt frontend" ON)
+option(ENABLE_CINEMATIC_UI "Build the experimental Qt Quick 3D library prototype" OFF)
 option(ENABLE_QT_TRANSLATION "Enable translations for the Qt frontend" OFF)
 option(ENABLE_UPDATE_CHECKER "Enable update checker (for Qt and Android)" OFF)
 set(LICHII_BUILD_TAG "" CACHE STRING "Published build-N release tag; empty for local builds")
@@ -83,6 +84,10 @@ cmake_dependent_option(YUZU_USE_BUNDLED_QT "Download bundled Qt binaries" "${MSV
 
 option(ENABLE_DEBUG_TOOLS "Enable debugging tools (maxwell disassembler, SPIRV translator, etc)" OFF)
 option(ENABLE_WERROR "Enable -Werror diagnostics" ON)
+
+if (ENABLE_CINEMATIC_UI AND NOT ENABLE_QT)
+    message(FATAL_ERROR "ENABLE_CINEMATIC_UI requires ENABLE_QT")
+endif()
 
 # Handle specific -Werror downgrades safely across platforms
 if(ENABLE_WERROR)
@@ -643,6 +648,12 @@ if (ENABLE_QT)
 
     # Best practice is to ask for all components at once, so they are from the same version
     set(YUZU_QT_COMPONENTS Core Widgets Charts Concurrent Gui Network)
+    if (ENABLE_CINEMATIC_UI)
+        if (Qt6_VERSION VERSION_LESS "6.8.0")
+            message(FATAL_ERROR "ENABLE_CINEMATIC_UI requires Qt 6.8 or newer")
+        endif()
+        list(APPEND YUZU_QT_COMPONENTS Qml Quick Quick3D)
+    endif()
     if (LINUX OR FREEBSD)
         list(APPEND YUZU_QT_COMPONENTS DBus)
         # yes Qt, we get it

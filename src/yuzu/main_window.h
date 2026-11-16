@@ -46,6 +46,9 @@
 class QtConfig;
 class EmuThread;
 class GameList;
+#ifdef ENABLE_CINEMATIC_UI
+class CinematicLibraryHost;
+#endif
 class GImageInfo;
 class GRenderWindow;
 class LoadingScreen;
@@ -259,6 +262,9 @@ private:
                             const bool tas_allowed = false);
 
     void InitializeWidgets();
+#ifdef ENABLE_CINEMATIC_UI
+    void SetCinematicView(bool enabled);
+#endif
     void InitializeDebugWidgets();
     void InitializeRecentFileMenuActions();
 
@@ -510,6 +516,10 @@ private:
 
     GRenderWindow* render_window = nullptr;
     GameList* game_list = nullptr;
+#ifdef ENABLE_CINEMATIC_UI
+    CinematicLibraryHost* cinematic_host = nullptr;
+    QAction* cinematic_action = nullptr;
+#endif
     LoadingScreen* loading_screen = nullptr;
     QTimer shutdown_timer;
     QTimer emu_terminate_timer;

@@ -1,6 +1,6 @@
 # Desenvolvimento remoto e validação Windows
 
-Este guia se aplica ao `Hakayze/Hakas-Fritchii_MOD`. A branch principal é `nx2`, que deve permanecer estável até revisão e validação. O projeto ainda está em preparação (M0); compilar o frontend clássico não comprova que a futura interface cinematográfica funciona.
+Este guia se aplica ao `Hakayze/Hakas-Fritchii_MOD`. A branch principal é `nx2`, que deve permanecer estável até revisão e validação. O build e a abertura clássica de M0 foram confirmados; o protótipo M1 está em validação na branch `feat/cinematic-ui`. Compilar o frontend clássico não comprova o funcionamento da nova cena 3D; consulte [M1_PROTOTYPE.md](M1_PROTOTYPE.md).
 
 ## Continuar de outro computador ou celular
 

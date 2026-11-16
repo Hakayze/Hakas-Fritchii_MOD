@@ -10,7 +10,8 @@ Atualização: 16/11/2026. As fases abaixo são incrementais; estimativas de pra
 - [x] Pesquisa original disponível e revisões externas recebidas.
 - [x] Fork na conta Hakayze e documentação inicial.
 - [x] M0 parcial: build clássico Windows e pacote conferidos; [evidências](M0_VALIDATION.md).
-- [ ] M0: abertura e funcionamento básico em Windows real.
+- [x] M0 mínimo: interface clássica abriu no Windows, conforme confirmação do usuário em 16/11/2026.
+- [ ] M0 complementar: menus, segunda abertura, instalação limpa e registro do hardware/driver.
 - [ ] M1: prova de integração Qt Quick 3D.
 - [ ] M2–M6: implementação, fidelidade e distribuição.
 
@@ -36,7 +37,7 @@ Atualização: 16/11/2026. As fases abaixo são incrementais; estimativas de pra
 6. Comparar os hosts Quick; medir o bloqueio do boot existente sem alterar as threads do core.
 7. Testar retorno ao Clássico e preservar suas preferências.
 
-A opção de build acima é uma proposta; ainda não existe no código publicado nesta etapa.
+A implementação experimental da opção e a cena de prova estão descritas em [M1_PROTOTYPE.md](M1_PROTOTYPE.md). A integração ainda precisa de build e testes próprios; abrir o pacote M0 mostra a interface clássica.
 
 ## Verificação funcional
 
@@ -65,4 +66,3 @@ Registrar hardware, driver, resolução, perfil, tamanho da biblioteca, cache e 
 ## Evidência mínima de cada entrega
 
 Commit, escopo, comandos, resultado do build, verificações executadas, limitações e próximos bloqueios. “Compilou”, “iniciou” e “jogabilidade testada” são resultados distintos.
-

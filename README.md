@@ -6,14 +6,16 @@ O projeto pretende oferecer dois layouts selecionáveis: **Clássico**, com a in
 
 ## Estado atual
 
-**Preparação e documentação.** O código-base do Fritchii foi preservado. A interface cinematográfica ainda não foi implementada ou compilada neste projeto; não há um executável Hakas validado para download.
+**Protótipo M1 em validação.** O build clássico Windows de M0 passou no CI, e o usuário confirmou a abertura da interface existente. A branch `feat/cinematic-ui` acrescenta uma cena de teste Qt Quick 3D opcional, sem alterações no sistema de emulação.
 
-O próximo marco é compilar e executar o Fritchii original no Windows e validar uma página Qt Quick 3D mínima com troca de layouts.
+A opção `ENABLE_CINEMATIC_UI` fica OFF por padrão. O build ON oferece **View → Cinematic 3D Prototype (Experimental)**, com três caixas de arte original e retorno ao Clássico. Os builds Windows ON/OFF e os testes de renderização e integração têm validação própria; o pacote M0 continua exibindo a interface clássica. Consulte o [escopo M1](docs/hakas/M1_PROTOTYPE.md) e o [PR #2](https://github.com/Hakayze/Hakas-Fritchii_MOD/pull/2).
 
 ## Documentação
 
 - [Visão do projeto e arquitetura](docs/hakas/README.md)
 - [Roteiro e critérios de conclusão](docs/hakas/ROADMAP.md)
+- [Evidências do build e abertura clássica — M0](docs/hakas/M0_VALIDATION.md)
+- [Protótipo 3D opcional e testes — M1](docs/hakas/M1_PROTOTYPE.md)
 - [Compatibilidade e validação no Windows](docs/hakas/WINDOWS.md)
 - [Decisões técnicas e revisão das contribuições](docs/hakas/DECISOES.md)
 - [Responsabilidades e colaboração entre IAs](docs/hakas/COLABORACAO.md)
@@ -39,4 +41,3 @@ Os avisos de autoria e as licenças herdadas permanecem aplicáveis. Consulte [L
 Mensagem original de Frizti preservada:
 
 > Hi everybody i'm frizti i make things that work hopefully i love you
-
