@@ -413,6 +413,19 @@ endif()
 target_link_libraries(yuzu PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(yuzu PRIVATE common core input_common frontend_common network video_core qt_common)
 target_link_libraries(yuzu PRIVATE Boost::headers Qt6::Widgets Qt6::Charts Qt6::Concurrent Qt6::Network)
+if (ENABLE_CINEMATIC_UI)
+    target_compile_definitions(yuzu PRIVATE ENABLE_CINEMATIC_UI)
+    target_sources(yuzu PRIVATE cinematic/library_host.cpp cinematic/library_host.h)
+    target_link_libraries(yuzu PRIVATE Qt6::Qml Qt6::Quick Qt6::Quick3D)
+    set_source_files_properties(cinematic/qml/CalibrationScene.qml PROPERTIES
+        QT_RESOURCE_ALIAS CalibrationScene.qml)
+    qt_add_qml_module(yuzu
+        URI Hakas.Cinematic
+        VERSION 1.0
+        RESOURCE_PREFIX /qt/qml
+        OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Hakas/Cinematic"
+        QML_FILES cinematic/qml/CalibrationScene.qml)
+endif()
 # Unpacks NVIDIA's files from the Streamline release (nvidia_dlss_panel.cpp).
 target_link_libraries(yuzu PRIVATE ZLIB::ZLIB)
 target_link_libraries(yuzu PRIVATE ${PLATFORM_LIBRARIES} Threads::Threads)
@@ -454,7 +467,11 @@ if (WIN32 AND NOT YUZU_USE_BUNDLED_QT)
     endif()
     if (WINDEPLOYQT_EXECUTABLE)
         set(YUZU_EXE_DIR "$<TARGET_FILE_DIR:yuzu>")
-        add_custom_command(TARGET yuzu POST_BUILD COMMAND ${WINDEPLOYQT_EXECUTABLE} "$<TARGET_FILE:yuzu>" --dir "${YUZU_EXE_DIR}" --libdir "${YUZU_EXE_DIR}" --plugindir "${YUZU_EXE_DIR}/plugins" --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --no-translations --verbose 0)
+        set(YUZU_QML_DEPLOY_ARGS)
+        if (ENABLE_CINEMATIC_UI)
+            list(APPEND YUZU_QML_DEPLOY_ARGS --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/cinematic/qml")
+        endif()
+        add_custom_command(TARGET yuzu POST_BUILD COMMAND ${WINDEPLOYQT_EXECUTABLE} "$<TARGET_FILE:yuzu>" ${YUZU_QML_DEPLOY_ARGS} --dir "${YUZU_EXE_DIR}" --libdir "${YUZU_EXE_DIR}" --plugindir "${YUZU_EXE_DIR}/plugins" --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --no-translations --verbose 0)
     else()
         message(WARNING "windeployqt not found: copy the Qt DLLs next to the executable yourself")
     endif()

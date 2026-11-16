@@ -43,6 +43,11 @@
 #include "set_play_time_dialog.h"
 #include "util/util.h"
 #include "yuzu/game/game_list.h"
+#ifdef ENABLE_CINEMATIC_UI
+#include <QPointer>
+#include <QSignalBlocker>
+#include "yuzu/cinematic/library_host.h"
+#endif
 #include "yuzu/nup_dialogs.h"
 
 #include "applets/qt_amiibo_settings.h"
@@ -947,6 +952,12 @@ void MainWindow::InitializeWidgets() {
     ui->horizontalLayout->addWidget(game_list_placeholder);
     game_list_placeholder->setVisible(false);
 
+#ifdef ENABLE_CINEMATIC_UI
+    cinematic_action = ui->menu_View->addAction(tr("Cinematic 3D Prototype (Experimental)"));
+    cinematic_action->setCheckable(true);
+    connect(cinematic_action, &QAction::toggled, this, &MainWindow::SetCinematicView);
+#endif
+
     loading_screen = new LoadingScreen(this);
     loading_screen->hide();
     ui->horizontalLayout->addWidget(loading_screen);
@@ -1647,9 +1658,75 @@ void MainWindow::ConnectMenuEvents() {
     connect_menu(ui->action_Data_Manager, &MainWindow::OnDataDialog);
 }
 
+#ifdef ENABLE_CINEMATIC_UI
+void MainWindow::SetCinematicView(bool enabled) {
+    const QSignalBlocker blocker{cinematic_action};
+    if (enabled && (boot_in_progress || emulation_running || close_pending)) {
+        enabled = false;
+    }
+    cinematic_action->setChecked(enabled);
+
+    if (!enabled) {
+        auto* host = cinematic_host;
+        cinematic_host = nullptr;
+        if (host) {
+            host->hide();
+            ui->horizontalLayout->removeWidget(host);
+            host->disconnect(this);
+            host->deleteLater();
+        }
+        if (!close_pending) {
+            OnGameListShowList(!game_list->IsEmpty());
+            if (!boot_in_progress && !emulation_running) {
+                game_list->SetFilterFocus();
+            }
+        }
+        return;
+    }
+    if (cinematic_host) {
+        return;
+    }
+
+    auto* host = new CinematicLibraryHost(this);
+    cinematic_host = host;
+    const QPointer<CinematicLibraryHost> guarded_host{host};
+    connect(host, &CinematicLibraryHost::ReturnToClassic, this,
+            [this, guarded_host] {
+                if (guarded_host && cinematic_host == guarded_host.data()) {
+                    SetCinematicView(false);
+                }
+            }, Qt::QueuedConnection);
+    connect(host, &CinematicLibraryHost::SceneFailed, this,
+            [this, guarded_host](const QString& message) {
+                if (!guarded_host || cinematic_host != guarded_host.data()) {
+                    return;
+                }
+                SetCinematicView(false);
+                QMessageBox::warning(this, tr("Cinematic prototype unavailable"), message);
+            }, Qt::QueuedConnection);
+
+    const auto error = host->LoadScene();
+    if (!error.isEmpty()) {
+        SetCinematicView(false);
+        QMessageBox::warning(this, tr("Cinematic prototype unavailable"), error);
+        return;
+    }
+    game_list->hide();
+    game_list_placeholder->hide();
+    ui->horizontalLayout->addWidget(host);
+    host->show();
+    QTimer::singleShot(0, host, &CinematicLibraryHost::FocusScene);
+}
+#endif
+
 void MainWindow::UpdateMenuState() {
     const bool is_paused = QtCommon::emu_thread == nullptr || !QtCommon::emu_thread->IsRunning();
     const bool is_firmware_available = CheckFirmwarePresence();
+#ifdef ENABLE_CINEMATIC_UI
+    if (cinematic_action) {
+        cinematic_action->setEnabled(!emulation_running && !boot_in_progress && !close_pending);
+    }
+#endif
 
     const std::array running_actions{
         ui->action_Stop,
@@ -1914,11 +1991,18 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         return;
     }
     boot_in_progress = true;
+#ifdef ENABLE_CINEMATIC_UI
+    SetCinematicView(false);
+    cinematic_action->setEnabled(false);
+#endif
     game_list->SetScanEnabled(false);
     QElapsedTimer boot_timer;
     boot_timer.start();
     SCOPE_EXIT {
         boot_in_progress = false;
+#ifdef ENABLE_CINEMATIC_UI
+        cinematic_action->setEnabled(!emulation_running && !close_pending);
+#endif
         LOG_INFO(Frontend, "Launch finished: elapsed_ms={} running={}", boot_timer.elapsed(),
                  emulation_running);
         if (!emulation_running && !close_pending) {
@@ -2833,6 +2917,13 @@ void MainWindow::OnGameListAddDirectory() {
 }
 
 void MainWindow::OnGameListShowList(bool show) {
+#ifdef ENABLE_CINEMATIC_UI
+    if (cinematic_host) {
+        game_list->hide();
+        game_list_placeholder->hide();
+        return;
+    }
+#endif
     if (emulation_running && ui->action_Single_Window_Mode->isChecked())
         return;
     game_list->setVisible(show);
@@ -5028,6 +5119,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         return;
     }
     close_pending = true;
+#ifdef ENABLE_CINEMATIC_UI
+    SetCinematicView(false);
+    cinematic_action->setEnabled(false);
+#endif
     game_list->SetScanEnabled(false);
     if (boot_in_progress) {
         event->ignore();

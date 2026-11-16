@@ -77,7 +77,7 @@ GameList::GameList(FileSys::VirtualFilesystem vfs_, FileSys::ManualContentProvid
                 if (system.IsPoweredOn()) {
                     return;
                 }
-                if (!this->isActiveWindow()) {
+                if (!this->isActiveWindow() || !isVisible() || !isEnabled()) {
                     return;
                 }
                 QKeyEvent* event = new QKeyEvent(QEvent::KeyPress, key, Qt::NoModifier);
@@ -366,6 +366,9 @@ void GameList::UpdateIconSizes() {
 }
 
 void GameList::ValidateEntry(const QModelIndex& item) {
+    if (!isVisible() || !isEnabled()) {
+        return;
+    }
     const auto selected = item.sibling(item.row(), 0);
 
     switch (selected.data(GameListItem::TypeRole).value<GameListItemType>()) {

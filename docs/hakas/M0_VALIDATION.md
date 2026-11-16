@@ -1,6 +1,6 @@
 # M0 — validação do build clássico Windows
 
-Registro: 16/11/2026. **Build e inspeção do pacote aprovados; abertura no Windows ainda pendente.** Esta evidência cobre o frontend clássico, sem implementação cinematográfica.
+Registro: 16/11/2026. **Build e inspeção do pacote aprovados; abertura da interface clássica confirmada pelo usuário.** Esta evidência cobre o frontend clássico, sem implementação cinematográfica.
 
 ## Origem e execução
 
@@ -79,9 +79,12 @@ A inspeção estática das importações encontrou as DLLs Qt diretas dos execut
 | Configuração e compilação clássica | Aprovadas no CI |
 | Existência dos executáveis e deploy Qt | Aprovados no CI |
 | Integridade do ZIP e inspeção estática | Aprovadas |
-| Abertura, menus, fechamento e segunda abertura no Windows | **Pendente** |
+| Abertura da interface clássica no Windows | Confirmada pelo usuário em 16/11/2026 |
+| Menus, fechamento e segunda abertura | **Pendentes** |
 | Instalação sem Qt/SDK no PATH | **Pendente** |
 | Jogabilidade e regressões de emulação | Não avaliadas |
 | Interface cinematográfica / desempenho 3D | Ainda não implementados |
 
-M0 permanece parcialmente concluído. Após o teste de abertura, registrar a máquina e o resultado neste documento; depois iniciar M1 em branch separada, preservando a opção de build Clássico.
+Em 16/11/2026, o usuário informou: "consegui, abriu a onterface antiga". É confirmação manual da abertura da interface clássica, não execução observada pelo agente. O Windows/build, hardware e driver da máquina não foram informados. Houve antes um erro do assistente de extração do Windows ("Acesso à pasta compactada negado"); o usuário confirmou a abertura depois, sem informar a causa ou a solução usada para extrair.
+
+O critério mínimo de M0 (build registrado e executável iniciando no Windows) foi atendido. Menus, segunda abertura, instalação limpa e matriz de compatibilidade continuam pendentes. M1 pode começar em branch separada; nenhuma dessas pendências deve ser anunciada como validada.

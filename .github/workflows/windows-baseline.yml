@@ -27,9 +27,13 @@ concurrency:
 
 jobs:
   windows-baseline:
-    name: Build classic Windows x64
+    name: Build Windows x64 (Cinematic ${{ matrix.cinematic }})
     runs-on: windows-2022
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        cinematic: ["OFF", "ON"]
 
     steps:
       - name: Check out source
@@ -47,7 +51,7 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          modules: qtcharts
+          modules: ${{ matrix.cinematic == 'ON' && 'qtcharts qtquick3d qtshadertools qtquicktimeline' || 'qtcharts' }}
           cache: true
 
       # Reuse the SDK installer already employed by the upstream release workflow.
@@ -71,12 +75,13 @@ jobs:
           restore-keys: |
             hakas-win-cpm-v1-
 
-      - name: Configure original classic frontend
+      - name: Configure Windows frontend
         shell: pwsh
         run: |
           cmake -S . -B build/windows-ci -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_TESTING=OFF `
+            -DENABLE_CINEMATIC_UI=${{ matrix.cinematic }} `
             -DYUZU_TESTS=OFF `
             -DYUZU_CMD=ON `
             -DYUZU_ROOM=OFF `
@@ -89,7 +94,14 @@ jobs:
             -DUSE_DISCORD_PRESENCE=OFF
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Build classic frontend and CLI
+      - name: Check cinematic QML
+        if: matrix.cinematic == 'ON'
+        shell: pwsh
+        run: |
+          qmllint -I "$env:QT_ROOT_DIR/qml" src/yuzu/cinematic/qml/CalibrationScene.qml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build frontend and CLI
         shell: pwsh
         run: |
           cmake --build build/windows-ci --target yuzu yuzu-cmd --parallel 4
@@ -103,14 +115,27 @@ jobs:
               throw "Missing expected Windows executable: $exe"
             }
           }
-          windeployqt --release --no-translations build/windows-ci/bin/lichii.exe
+          $deployArgs = @("--release", "--no-translations")
+          if ("${{ matrix.cinematic }}" -eq "ON") {
+            $deployArgs += @("--qmldir", "src/yuzu/cinematic/qml")
+          }
+          windeployqt @deployArgs build/windows-ci/bin/lichii.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ("${{ matrix.cinematic }}" -eq "ON") {
+            foreach ($dependency in @("Qt6Qml.dll", "Qt6Quick.dll", "Qt6Quick3D.dll", "qml/QtQuick3D/qmldir")) {
+              if (-not (Test-Path "build/windows-ci/bin/$dependency")) {
+                throw "Missing cinematic dependency: $dependency"
+              }
+            }
+          } elseif (Test-Path "build/windows-ci/bin/Qt6Quick3D.dll") {
+            throw "The classic package unexpectedly includes Qt Quick 3D"
+          }
 
       # A CI artifact is a compile/dependency check, NOT a gameplay-tested Hakas release.
       - name: Upload Windows CI build
         uses: actions/upload-artifact@v4
         with:
-          name: hakas-classic-windows-x64-unverified-${{ github.sha }}
+          name: hakas-windows-x64-cinematic-${{ matrix.cinematic }}-unverified-${{ github.sha }}
           path: build/windows-ci/bin/
           if-no-files-found: error
           retention-days: 3

@@ -19,7 +19,7 @@ O novo frontend deve preservar a possibilidade de executar o modo Clássico nos 
 | Compilador / SDK | Versões e opções usadas | CI: MSVC 19.44.35230.0, Windows SDK 10.0.26100.0; [registro completo](M0_VALIDATION.md) |
 | Instalação limpa | Sem ferramentas de desenvolvimento ou Qt no PATH | Pendente |
 
-O [build clássico de M0](M0_VALIDATION.md) passou no runner Windows do CI. A abertura em um PC Windows e o teste numa instalação limpa continuam pendentes; o ambiente de build não comprova compatibilidade dos PCs de destino.
+O [build clássico de M0](M0_VALIDATION.md) passou no runner Windows do CI, e o usuário confirmou a abertura da interface clássica em 16/11/2026. O hardware/build do Windows dessa máquina e o teste numa instalação limpa continuam pendentes; o ambiente de build não comprova compatibilidade dos demais PCs de destino.
 
 Windows 10/11 em x64 são candidatos para a matriz inicial. O suporte exato de versões e arquiteturas deve resultar da auditoria das dependências e dos testes; ainda não foi demonstrado por este fork.
 
@@ -56,4 +56,3 @@ Um fallback em código não resolve a ausência de uma DLL necessária para o pr
 Publicar apenas combinações verificadas. Registrar também falhas e limitações conhecidas. Comparar o emulador base e o Hakas na mesma máquina para separar custo da interface e custo da emulação.
 
 Consultar a [documentação oficial de requisitos do Qt Quick 3D](https://doc.qt.io/qt-6.8/qtquick3d-requirements.html) e o [roteiro de validação](ROADMAP.md). Os ambientes e caminhos de PCs citados nos guias herdados pertencem ao histórico upstream e não comprovam o ambiente do responsável por este projeto.
-
