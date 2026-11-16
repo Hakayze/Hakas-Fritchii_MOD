@@ -15,9 +15,11 @@ O novo frontend deve preservar a possibilidade de executar o modo Clássico nos 
 | Windows | Edição, versão/build e arquitetura | Pendente |
 | CPU e RAM | Modelo, recursos exigidos e consumo | Pendente |
 | GPU integrada e dedicada | Modelo, driver, backend Quick e backend do jogo | Pendente |
-| Qt | Versão, kit/ABI e módulos efetivamente instalados | Pendente |
-| Compilador / SDK | Versões e opções usadas | Pendente |
+| Qt | Versão, kit/ABI e módulos efetivamente instalados | CI clássico: Qt 6.8.3, msvc2022_64, Qt Charts; módulos cinematográficos pendentes |
+| Compilador / SDK | Versões e opções usadas | CI: MSVC 19.44.35230.0, Windows SDK 10.0.26100.0; [registro completo](M0_VALIDATION.md) |
 | Instalação limpa | Sem ferramentas de desenvolvimento ou Qt no PATH | Pendente |
+
+O [build clássico de M0](M0_VALIDATION.md) passou no runner Windows do CI. A abertura em um PC Windows e o teste numa instalação limpa continuam pendentes; o ambiente de build não comprova compatibilidade dos PCs de destino.
 
 Windows 10/11 em x64 são candidatos para a matriz inicial. O suporte exato de versões e arquiteturas deve resultar da auditoria das dependências e dos testes; ainda não foi demonstrado por este fork.
 

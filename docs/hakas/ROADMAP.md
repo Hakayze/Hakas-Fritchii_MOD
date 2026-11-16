@@ -9,7 +9,8 @@ Atualização: 16/11/2026. As fases abaixo são incrementais; estimativas de pra
 - [x] Nome e escopo definidos.
 - [x] Pesquisa original disponível e revisões externas recebidas.
 - [x] Fork na conta Hakayze e documentação inicial.
-- [ ] M0: build original executado e registrado.
+- [x] M0 parcial: build clássico Windows e pacote conferidos; [evidências](M0_VALIDATION.md).
+- [ ] M0: abertura e funcionamento básico em Windows real.
 - [ ] M1: prova de integração Qt Quick 3D.
 - [ ] M2–M6: implementação, fidelidade e distribuição.
 
