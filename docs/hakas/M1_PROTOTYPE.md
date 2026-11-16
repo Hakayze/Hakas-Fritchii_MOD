@@ -40,7 +40,11 @@ Em 16/11/2026, a cena foi verificada localmente com Qt/PySide 6.8.3:
 
 Esses testes carregaram o QML sem mostrar a janela nem produzir frames GPU. Não comprovam renderização, picking visual, integração nativa QWidget nem comportamento no Windows.
 
+O host C++ e seu moc foram compilados em objetos com headers/ferramentas oficiais Qt 6.8.3, GNU g++ 14.2.0, C++20 e `-Wall -Wextra -Werror`, sem erros. Esse teste não fez link nem executou a integração nativa. O CMake do harness local ficou limitado pelas dependências de desenvolvimento OpenGL ausentes no ambiente; a compilação completa e o empacotamento continuam sob responsabilidade do CI Windows.
+
 O CI compila os dois caminhos em jobs separados, executa `qmllint` apenas no habilitado, usa `windeployqt --qmldir` e verifica os imports/dependências do pacote 3D. O pacote clássico é conferido para não incorporar QtQuick3D. Resultados e links dos jobs devem ser registrados após a execução, sem antecipar aprovação.
+
+A [execução 43934085853](https://github.com/Hakayze/Hakas-Fritchii_MOD/actions/runs/43934085853) foi iniciada para o commit de implementação `ed028475d243854a531fe10b05be82e10f5837f5`. A configuração Windows do job ON e o lint QML já passaram; o resultado da compilação e dos pacotes deve ser conferido na própria execução. Commits posteriores somente de documentação não mudam o código desse build.
 
 ## Testes ainda necessários
 
