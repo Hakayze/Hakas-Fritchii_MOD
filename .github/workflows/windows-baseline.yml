@@ -1,0 +1,116 @@
+name: Hakas Windows baseline
+
+# CI for review only. Does not modify nx2, tag commits, or publish releases.
+on:
+  pull_request:
+    branches:
+      - nx2
+    paths:
+      - ".github/workflows/windows-baseline.yml"
+      - "CMakeLists.txt"
+      - "CMakeModules/**"
+      - "cpmfile.json"
+      - "src/**"
+      - "externals/**"
+      - "dist/**"
+      - "tools/windows/**"
+      - ".patch/**"
+      - "docs/hakas/REMOTE_DEV.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hakas-windows-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-baseline:
+    name: Build classic Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Qt 6.8.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtcharts
+          cache: true
+
+      # Reuse the SDK installer already employed by the upstream release workflow.
+      # It calls Get-WmiObject, so run it with Windows PowerShell 5.1, not pwsh 7.
+      - name: Install Vulkan SDK
+        shell: powershell
+        run: ./tools/windows/install-vulkan-sdk.ps1
+
+      - name: Check toolchain
+        shell: pwsh
+        run: |
+          cmake --version
+          ninja --version
+          glslangValidator --version
+
+      - name: Restore CMake dependency downloads
+        uses: actions/cache@v4
+        with:
+          path: .cache/cpm
+          key: hakas-win-cpm-v1-${{ hashFiles('cpmfile.json', 'CMakeLists.txt', 'CMakeModules/**', 'externals/**/CMakeLists.txt', 'src/**/CMakeLists.txt') }}
+          restore-keys: |
+            hakas-win-cpm-v1-
+
+      - name: Configure original classic frontend
+        shell: pwsh
+        run: |
+          cmake -S . -B build/windows-ci -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_TESTING=OFF `
+            -DYUZU_TESTS=OFF `
+            -DYUZU_CMD=ON `
+            -DYUZU_ROOM=OFF `
+            -DYUZU_ROOM_STANDALONE=OFF `
+            -DYUZU_USE_BUNDLED_QT=OFF `
+            -DYUZU_USE_BUNDLED_SDL3=ON `
+            -DENABLE_UPDATE_CHECKER=ON `
+            -DLICHII_BUILD_TAG=hakas-ci-${{ github.run_number }} `
+            -DLICHII_BUILD_PLATFORM=windows-x86_64 `
+            -DUSE_DISCORD_PRESENCE=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build classic frontend and CLI
+        shell: pwsh
+        run: |
+          cmake --build build/windows-ci --target yuzu yuzu-cmd --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify executables and deploy Qt
+        shell: pwsh
+        run: |
+          foreach ($exe in @("lichii.exe", "eden-cli.exe")) {
+            if (-not (Test-Path "build/windows-ci/bin/$exe")) {
+              throw "Missing expected Windows executable: $exe"
+            }
+          }
+          windeployqt --release --no-translations build/windows-ci/bin/lichii.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # A CI artifact is a compile/dependency check, NOT a gameplay-tested Hakas release.
+      - name: Upload Windows CI build
+        uses: actions/upload-artifact@v4
+        with:
+          name: hakas-classic-windows-x64-unverified-${{ github.sha }}
+          path: build/windows-ci/bin/
+          if-no-files-found: error
+          retention-days: 3
