@@ -31,3 +31,9 @@ O protótipo Qt Quick 3D do PR #2 está preservado na branch anterior. Seus test
 ## Revisões externas
 
 A ferramenta e o workflow de revisão chamam Gemini e DeepSeek somente quando chaves e modelos estão configurados. Credenciais não fazem parte do repositório nem do executável. Sem configuração, o workflow informa que as revisões não foram executadas. Os testes do cliente usam HTTP simulado e não são pareceres dos provedores.
+
+## Ajuste de compatibilidade MSVC e modo gratuito
+
+A primeira execução Windows passou pela configuração e pela verificação de identidade Fritchii, mas falhou em C4459 em `src/common/frizti_settings.cpp`: quatro parâmetros/variáveis locais `values` escondiam `Settings::values`. A correção renomeia somente esses identificadores e suas referências, sem mudar tipos, configurações, defaults ou schema. O novo build deve verificar a correção; o restante da fonte da release é preservado.
+
+Por solicitação de orçamento zero, o workflow automático passou a chamar somente Gemini, com chave de projeto Free Tier sem faturamento e modelo elegível. DeepSeek oficial não é solicitado por esse workflow. O cliente continua oferecendo DeepSeek como opção explícita, sujeita às tarifas do provedor. A cota esgotada termina a execução, sem retry ou troca para API paga. Não é possível detectar o estado de faturamento do projeto Google a partir da chave; a configuração Free Tier precisa ser feita na conta do usuário.

@@ -197,7 +197,7 @@ def main(argv=None, environ=None):
         modes = cli.add_mutually_exclusive_group()
         modes.add_argument("--check", action="store_true")
         modes.add_argument("--dry-run", action="store_true")
-        cli.add_argument("--provider", choices=("both",) + PROVIDERS, default="both")
+        cli.add_argument("--provider", choices=("both",) + PROVIDERS, default="gemini")
         cli.add_argument("--input")
         cli.add_argument("--output-dir", type=Path)
         cli.add_argument("--max-input-bytes", type=bounded(1, 1048576), default=131072)

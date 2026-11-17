@@ -1,4 +1,4 @@
-name: Hakas Gemini and DeepSeek review
+name: Hakas Gemini free-tier review
 
 on:
   pull_request:
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   review:
-    name: Independent Gemini and DeepSeek reviews
+    name: Gemini review (Free Tier project)
     if: >-
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
@@ -99,37 +99,33 @@ jobs:
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL }}
         run: |
           set -euo pipefail
-          if python3 tools/ai_review/review.py --check; then
+          if python3 tools/ai_review/review.py --check --provider gemini; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Gemini/DeepSeek were not called: configure both API key secrets and both model variables."
+            echo "::warning::Gemini was not called: configure GEMINI_API_KEY and GEMINI_MODEL for a Free Tier project."
             cat >> "$GITHUB_STEP_SUMMARY" <<'NOTE'
           ## Provider configuration required
 
-          No Gemini or DeepSeek API request was made. Add repository Actions secrets `GEMINI_API_KEY` and `DEEPSEEK_API_KEY`, plus Actions variables `GEMINI_MODEL` and `DEEPSEEK_MODEL`. Web chat logins do not configure this API client.
+          No Gemini API request was made. Add repository Actions secret `GEMINI_API_KEY` and Actions variable `GEMINI_MODEL`. Use an eligible free model in a Free Tier project without billing enabled. The workflow cannot determine the billing status of the project from its API key. DeepSeek is not called by this workflow.
           NOTE
           fi
 
-      - name: Request independent provider reviews
+      - name: Request Gemini review
         id: review
         if: steps.configuration.outputs.ready == 'true' && steps.input.outputs.eligible == 'true'
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL }}
         run: |
           python3 tools/ai_review/review.py \
             --input "$REVIEW_DIFF" \
             --output-dir "$REVIEW_OUTPUT" \
-            --provider both \
+            --provider gemini \
             --max-input-bytes 131072 \
             --max-output-tokens 2048 \
             --max-output-chars 16000 \
@@ -155,7 +151,7 @@ jobs:
 
           outcome = os.environ.get("REVIEW_OUTCOME", "")
           if outcome == "success":
-              message = "Provider calls completed. Read both Markdown reports and summary.json; this is advisory review, not automatic approval or a build test."
+              message = "Gemini request completed. Read gemini.md and summary.json; this is advisory review, not automatic approval or a build test. DeepSeek was not requested."
           elif outcome == "failure":
               message = "Provider review failed or was incomplete. Available reports are preserved; no retry, patch execution, comment or merge was performed."
           else:

@@ -34,7 +34,7 @@ class ReviewTests(unittest.TestCase):
         self.stdout, self.stderr = io.StringIO(), io.StringIO()
 
     def run_cli(self, extra=None, env=None):
-        args = ["--input", str(self.input), "--output-dir", str(self.root / "reports")]
+        args = ["--input", str(self.input), "--output-dir", str(self.root / "reports"), "--provider", "both"]
         with redirect_stdout(self.stdout), redirect_stderr(self.stderr):
             return review.main(args + (extra or []), ENV if env is None else env)
 
@@ -158,6 +158,29 @@ class ReviewTests(unittest.TestCase):
         env = dict(ENV, GEMINI_MODEL="")
         with self.assertRaises(review.ReviewError):
             review.configs(env, review.PROVIDERS)
+
+    def test_default_gemini_needs_no_deepseek_configuration(self):
+        env = {k: v for k, v in ENV.items() if k.startswith("GEMINI_")}
+        with patch.object(review, "post_once", return_value=answer("gemini")) as post:
+            with redirect_stdout(self.stdout), redirect_stderr(self.stderr):
+                code = review.main(["--input", str(self.input), "--output-dir", str(self.root / "reports")], env)
+        self.assertEqual(code, 0)
+        self.assertEqual(post.call_count, 1)
+        self.assertIn("googleapis", post.call_args.args[0].full_url)
+        self.assertFalse((self.root / "reports/deepseek.md").exists())
+
+    def test_default_gemini_quota_does_not_retry_or_fall_back(self):
+        def quota(request, timeout):
+            self.assertIn("googleapis", request.full_url)
+            raise urllib.error.HTTPError(request.full_url, 429, "quota", {}, None)
+        with patch.object(review, "post_once", side_effect=quota) as post:
+            with redirect_stdout(self.stdout), redirect_stderr(self.stderr):
+                code = review.main(["--input", str(self.input), "--output-dir", str(self.root / "reports")], ENV)
+        self.assertEqual(code, 1)
+        self.assertEqual(post.call_count, 1)
+        self.assertFalse((self.root / "reports/deepseek.md").exists())
+        summary = json.loads((self.root / "reports/summary.json").read_text())
+        self.assertEqual([r["provider"] for r in summary["results"]], ["gemini"])
 
 
 if __name__ == "__main__":
