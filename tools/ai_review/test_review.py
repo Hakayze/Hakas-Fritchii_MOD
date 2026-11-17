@@ -196,6 +196,35 @@ class ReviewTests(unittest.TestCase):
         self.assertNotIn("credencial", result["error"])
         self.assertFalse((self.root / "reports/deepseek.md").exists())
 
+    def test_rpc_error_is_bounded_and_redacts_keys(self):
+        body = json.dumps({"error": {"status": "UNAVAILABLE", "message": "high demand " + ENV["GEMINI_API_KEY"],
+                                     "details": [{"reason": "CAPACITY"}]}}).encode()
+        error = urllib.error.HTTPError("https://example.invalid", 503, "Unavailable", {}, io.BytesIO(body))
+        result = review.http_failure(error, [ENV["GEMINI_API_KEY"]])
+        self.assertEqual(result["provider_status"], "UNAVAILABLE")
+        self.assertIn("high demand", result["provider_message"])
+        self.assertNotIn(ENV["GEMINI_API_KEY"], json.dumps(result))
+        error = urllib.error.HTTPError("https://example.invalid", 503, "Unavailable", {}, io.BytesIO(b"x" * 17000))
+        self.assertNotIn("provider_message", review.http_failure(error, []))
+
+    def test_interactions_payload_and_final_output_only(self):
+        config = review.configs(ENV, ("gemini",))[0]
+        request = review.make_request(config, "diff", 2048, "interactions")
+        payload = json.loads(request.data)
+        self.assertEqual(request.full_url, "https://generativelanguage.googleapis.com/v1beta/interactions")
+        self.assertEqual(request.get_header("Api-revision"), "2026-05-20")
+        self.assertIs(payload["store"], False)
+        self.assertEqual(payload["generation_config"]["max_output_tokens"], 2048)
+        doc = {"status": "completed", "steps": [
+            {"type": "thought", "summary": [{"type": "text", "text": "private thought"}]},
+            {"type": "user_input", "content": [{"type": "text", "text": "user input"}]},
+            {"type": "model_output", "status": "done", "content": [{"type": "text", "text": "final answer"}]}]}
+        self.assertEqual(review.parse_response("gemini", doc, "interactions"), ("final answer", "completed", {}, True))
+        doc["status"] = "in_progress"
+        self.assertFalse(review.parse_response("gemini", doc, "interactions")[3])
+        with patch.object(review, "post_once", return_value=dict(doc, status="completed")):
+            self.assertEqual(self.run_cli(["--provider", "gemini", "--gemini-api", "interactions"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

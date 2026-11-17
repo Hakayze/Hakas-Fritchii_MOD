@@ -38,6 +38,14 @@ Entrada que contenha qualquer chave ativa é recusada. Respostas e erros são sa
 
 Um erro HTTP 503 é registrado como indisponibilidade temporária do serviço. Não comprova autenticação nem conclusão da revisão. O cliente mantém a tentativa única, preserva o diagnóstico e não troca para outro provedor. HTTP 429 é registrado separadamente como limite ou cota.
 
+## Diagnóstico de conectividade
+
+`python3 tools/ai_review/diagnose.py --output-dir /tmp/novo-diagnostico` consulta os metadados do modelo configurado e testa uma geração mínima pela API Interactions. Apenas se essa API responder 404 ou 503, testa também `generateContent`. São no máximo um GET e dois POSTs pequenos, sem código do projeto, sem troca de modelo/chave e sem retries. Erros de permissão, autenticação ou cota encerram o teste. Metadados disponíveis não comprovam que a geração está autorizada; a geração mínima concluída é que habilita a revisão do diff no workflow.
+
+O workflow preserva `diagnostic.json` mesmo quando as chamadas falham. O diagnóstico registra apenas campos limitados e sanitizados do erro Google (`status`, `message` e `reason`), sem gravar o corpo bruto, cabeçalhos de autenticação ou chave. A revisão aceita `--gemini-api interactions` ou `--gemini-api generate-content`; o workflow seleciona a API que passou no teste mínimo. Interactions usa `Api-Revision: 2026-05-20` e `store=false`; somente texto de etapas `model_output` concluídas é tratado como resposta final. Pensamentos e assinaturas não são gravados como parecer.
+
+Os POSTs de diagnóstico também podem consumir cota. Continuam usando o mesmo projeto Free Tier sem faturamento; o programa não consegue verificar nem alterar o estado de faturamento da conta Google.
+
 Não houve chamada real aos provedores nos testes da ferramenta. Os testes usam respostas HTTP simuladas e não comprovam autenticação, saldo, disponibilidade do modelo ou qualidade de revisão em produção.
 
 ## Referências oficiais

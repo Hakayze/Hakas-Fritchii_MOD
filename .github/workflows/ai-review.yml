@@ -47,6 +47,7 @@ jobs:
         run: |
           echo "REVIEW_DIFF=$RUNNER_TEMP/hakas-selected-review.diff" >> "$GITHUB_ENV"
           echo "REVIEW_OUTPUT=$RUNNER_TEMP/ai-review-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          echo "DIAGNOSTIC_OUTPUT=$RUNNER_TEMP/gemini-diagnostic-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
       - name: Test the review client without provider credentials
         shell: bash
@@ -114,29 +115,43 @@ jobs:
           NOTE
           fi
 
-      - name: Request Gemini review
-        id: review
+      - name: Diagnose Gemini metadata and minimal generation
+        id: diagnostic
         if: steps.configuration.outputs.ready == 'true' && steps.input.outputs.eligible == 'true'
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+        run: python3 tools/ai_review/diagnose.py --output-dir "$DIAGNOSTIC_OUTPUT"
+
+      - name: Request Gemini review
+        id: review
+        if: steps.diagnostic.outputs.api != ''
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_API: ${{ steps.diagnostic.outputs.api }}
         run: |
+          case "$GEMINI_API" in interactions|generate-content) ;; *) exit 1 ;; esac
           python3 tools/ai_review/review.py \
             --input "$REVIEW_DIFF" \
             --output-dir "$REVIEW_OUTPUT" \
             --provider gemini \
+            --gemini-api "$GEMINI_API" \
             --max-input-bytes 131072 \
             --max-output-tokens 2048 \
             --max-output-chars 16000 \
             --timeout 90
 
       - name: Preserve provider reports, including partial failures
-        if: always() && steps.review.outcome != 'skipped'
+        if: always() && steps.diagnostic.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: ai-review-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ env.REVIEW_OUTPUT }}/
+          path: |
+            ${{ env.REVIEW_OUTPUT }}/
+            ${{ env.DIAGNOSTIC_OUTPUT }}/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -145,6 +160,7 @@ jobs:
         shell: bash
         env:
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          DIAGNOSTIC_OUTCOME: ${{ steps.diagnostic.outcome }}
         run: |
           python3 - <<'PY'
           import os
@@ -154,8 +170,11 @@ jobs:
               message = "Gemini request completed. Read gemini.md and summary.json; this is advisory review, not automatic approval or a build test. DeepSeek was not requested."
           elif outcome == "failure":
               message = "Provider review failed or was incomplete. Available reports are preserved; no retry, patch execution, comment or merge was performed."
+          elif os.environ.get("DIAGNOSTIC_OUTCOME") == "failure":
+              message = "Gemini connectivity diagnosis failed. See diagnostic.json for metadata and bounded provider errors. No source review was sent after the failed probes; no paid fallback or automatic retries."
           else:
               message = "Provider calls did not run. Check configuration, input eligibility and preceding steps. Passing client tests is not an API review."
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write("\n## API review result\n\n" + message + "\n")
           PY
+

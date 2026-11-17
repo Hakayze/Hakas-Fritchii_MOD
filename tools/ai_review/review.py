@@ -95,15 +95,22 @@ def read_input(filename, limit):
     return text, {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
-def make_request(config, text, tokens):
+def make_request(config, text, tokens, gemini_api="generate-content", instruction=INSTRUCTIONS):
     prompt = "MATERIAL SELECIONADO:\n\n" + text
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if config["provider"] == "gemini":
-        url = "https://generativelanguage.googleapis.com/v1beta/models/" + config["model"] + ":generateContent"
         headers["x-goog-api-key"] = config["key"]
-        body = {"systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": tokens}}
+        if gemini_api == "interactions":
+            url = "https://generativelanguage.googleapis.com/v1beta/interactions"
+            headers["Api-Revision"] = "2026-05-20"
+            body = {"model": config["model"], "input": prompt,
+                    "system_instruction": instruction, "store": False,
+                    "generation_config": {"max_output_tokens": tokens}}
+        else:
+            url = "https://generativelanguage.googleapis.com/v1beta/models/" + config["model"] + ":generateContent"
+            body = {"systemInstruction": {"parts": [{"text": instruction}]},
+                    "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                    "generationConfig": {"maxOutputTokens": tokens}}
     else:
         url = "https://api.deepseek.com/chat/completions"
         headers["Authorization"] = "Bearer " + config["key"]
@@ -138,8 +145,16 @@ def post_once(request, timeout):
     return document
 
 
-def parse_response(provider, document):
-    if provider == "gemini":
+def parse_response(provider, document, gemini_api="generate-content"):
+    if provider == "gemini" and gemini_api == "interactions":
+        steps = document.get("steps") or []
+        outputs = [s for s in steps if s.get("type") == "model_output"]
+        answer = "\n".join(p["text"] for s in outputs for p in (s.get("content") or [])
+                           if p.get("type") == "text" and isinstance(p.get("text"), str))
+        finish = document.get("status", "unknown")
+        usage = document.get("usage") or {}
+        complete = finish == "completed" and all(s.get("status") == "done" for s in outputs)
+    elif provider == "gemini":
         choice = (document.get("candidates") or [{}])[0]
         parts = choice.get("content", {}).get("parts", [])
         answer = "\n".join(p["text"] for p in parts if isinstance(p.get("text"), str) and not p.get("thought"))
@@ -158,30 +173,53 @@ def parse_response(provider, document):
     return answer, str(finish)[:100], usage, complete
 
 
+def http_failure(error, keys):
+    """Retain bounded Google RPC diagnostics, never raw bodies or credentials."""
+    detail = {
+        400: "requisição inválida; confira parâmetros e suporte do modelo",
+        401: "autenticação recusada; confira a chave",
+        403: "acesso recusado; confira permissões e disponibilidade no projeto",
+        404: "recurso não encontrado; confira o ID do modelo e endpoint",
+        429: "limite ou cota atingido; confira o projeto antes de tentar novamente",
+        500: "erro interno do provedor",
+        503: "serviço temporariamente indisponível; aguarde antes de tentar novamente",
+    }.get(error.code, "falha HTTP do provedor")
+    result = dict(status="error", http_status=error.code,
+                  error=f"HTTP {error.code}; {detail}. Sem retry.")
+    try:
+        raw = error.read(16385)
+        if len(raw) <= 16384:
+            rpc = json.loads(raw).get("error", {})
+            for source, dest, limit in (("status", "provider_status", 100),
+                                        ("message", "provider_message", 1000)):
+                value = rpc.get(source)
+                if isinstance(value, str):
+                    result[dest] = redact(value, keys)[:limit]
+            reasons = [d["reason"] for d in rpc.get("details", [])
+                       if isinstance(d, dict) and isinstance(d.get("reason"), str)]
+            if reasons:
+                result["provider_reasons"] = [redact(v, keys)[:100] for v in reasons[:5]]
+    except (ValueError, OSError, AttributeError, TypeError):
+        pass
+    finally:
+        error.close()
+    return result
+
+
 def review_one(config, text, options, keys):
     result = {"provider": config["provider"], "model": config["model"]}
     started = time.monotonic()
     try:
-        doc = post_once(make_request(config, text, options.max_output_tokens), options.timeout)
-        answer, finish, usage, complete = parse_response(config["provider"], doc)
+        api = getattr(options, "gemini_api", "generate-content")
+        doc = post_once(make_request(config, text, options.max_output_tokens, api), options.timeout)
+        answer, finish, usage, complete = parse_response(config["provider"], doc, api)
         answer = redact(answer, keys)
         clipped = len(answer) > options.max_output_chars
         result.update(status="ok" if complete and not clipped else "incomplete",
                       text=answer[:options.max_output_chars], finish_reason=finish,
                       locally_truncated=clipped, usage=usage)
     except urllib.error.HTTPError as error:
-        detail = {
-            400: "requisição inválida; confira parâmetros e suporte do modelo",
-            401: "autenticação recusada; confira a chave",
-            403: "acesso recusado; confira permissões e disponibilidade no projeto",
-            404: "recurso não encontrado; confira o ID do modelo e endpoint",
-            429: "limite ou cota atingido; confira o projeto antes de tentar novamente",
-            500: "erro interno do provedor",
-            503: "serviço temporariamente indisponível; aguarde antes de tentar novamente",
-        }.get(error.code, "falha HTTP do provedor")
-        result.update(status="error", http_status=error.code,
-                      error=f"HTTP {error.code}; {detail}. Sem retry.")
-        error.close()
+        result.update(http_failure(error, keys))
     except Exception as error:
         result.update(status="error", error=redact(error, keys)[:1500])
     result["elapsed_seconds"] = round(time.monotonic() - started, 3)
@@ -207,6 +245,7 @@ def main(argv=None, environ=None):
         modes.add_argument("--check", action="store_true")
         modes.add_argument("--dry-run", action="store_true")
         cli.add_argument("--provider", choices=("both",) + PROVIDERS, default="gemini")
+        cli.add_argument("--gemini-api", choices=("generate-content", "interactions"), default="generate-content")
         cli.add_argument("--input")
         cli.add_argument("--output-dir", type=Path)
         cli.add_argument("--max-input-bytes", type=bounded(1, 1048576), default=131072)
@@ -223,6 +262,7 @@ def main(argv=None, environ=None):
         if any(key and key in text for key in keys):
             raise ReviewError("A entrada contém uma chave configurada; remova-a antes do envio.")
         metadata.update(created_at=datetime.now(timezone.utc).isoformat(),
+                        gemini_api=options.gemini_api,
                         max_output_tokens_per_provider=options.max_output_tokens,
                         max_output_chars_per_provider=options.max_output_chars)
         if options.dry_run:
