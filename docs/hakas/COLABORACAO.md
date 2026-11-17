@@ -1,3 +1,5 @@
+> Histórico da base nx2 anterior. A fonte atual é o Fritchii v5.8.4: consulte [BASE_CORRECTED.md](BASE_CORRECTED.md). Os testes registrados aqui não validam um novo build dessa versão.
+
 # Colaboração e responsabilidades
 
 [Voltar ao projeto](README.md)

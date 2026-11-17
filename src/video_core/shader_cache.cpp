@@ -30,11 +30,50 @@
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/host1x/gpu_device_memory_manager.h"
 #include "video_core/memory_manager.h"
+#include "video_core/nx2_debug_control.h"
+#include "video_core/pipeline_cache_policy.h"
 #include "video_core/shader_cache.h"
 #include "video_core/shader_environment.h"
 #include "video_core/texture_cache/util.h"
 
 namespace VideoCommon {
+
+u64 VertexAttributeMaskOf(const Shader::Environment& env) {
+    static const bool key_all = [] {
+        const char* value = std::getenv("EDEN_NX2_KEY_ALL_ATTRIBUTES");
+        return value != nullptr && value[0] == '1';
+    }();
+    if (key_all) {
+        return ~u64{0};
+    }
+    const Shader::Stage stage{env.ShaderStage()};
+    if (stage == Shader::Stage::Task || stage == Shader::Stage::Mesh) {
+        // No vertex input (Ocarina of Time: 191 keys for 31 sets of shaders, split only by the
+        // attribute registers).
+        return 0;
+    }
+    if (stage != Shader::Stage::VertexB || !env.IsNativeProgram()) {
+        return ~u64{0};
+    }
+    // The hardware only fetches the attributes in the input map, so a read outside it is never
+    // valid (none of Ocarina of Time's 1,250 cached vertex programs makes one).
+    std::array<std::array<bool, 4>, Tegra::Engines::Maxwell3D::Regs::NumVertexAttributes>
+        input_generic{};
+    for (size_t index = 0; index < input_generic.size(); ++index) {
+        input_generic[index] = env.SPH().vtg.InputGeneric(index);
+    }
+    return VertexAttributeMask(input_generic);
+}
+
+u32 GenericReadMask(const Shader::ProgramHeader& sph) noexcept {
+    u32 mask = 0;
+    for (size_t index = 0; index < 32; ++index) {
+        if ((sph.vtg.imap_generic_vector[index >> 1] >> ((index % 2) * 4)) & 0xF) {
+            mask |= 1U << index;
+        }
+    }
+    return mask;
+}
 
 void ShaderCache::InvalidateRegion(VAddr addr, size_t size) {
     std::scoped_lock lock{invalidation_mutex};
@@ -61,6 +100,38 @@ void ShaderCache::OnCacheInvalidation(VAddr addr, size_t size) {
 void ShaderCache::SyncGuestHost() {
     std::scoped_lock lock{invalidation_mutex};
     RemovePendingShaders();
+}
+
+void ShaderCache::RefreshDebugRejections(bool unrejected) {
+    std::vector<std::pair<VAddr, VAddr>> ranges;
+    {
+        std::scoped_lock lock{lookup_mutex};
+        for (const auto& [addr, entry] : lookup_cache) {
+            const ShaderInfo* const info = entry->data;
+            if (info->lowered_native &&
+                (VideoCore::Nx2Debug::IsRejected(info->unique_hash) ||
+                 VideoCore::Nx2Debug::IsRejected(info->lowered_native->native_program_key))) {
+                ranges.emplace_back(entry->addr_start, entry->addr_end);
+            }
+        }
+    }
+    {
+        std::scoped_lock lock{invalidation_mutex};
+        for (const auto& [start, end] : ranges) {
+            InvalidatePagesInRegion(start, end - start);
+        }
+        RemovePendingShaders();
+    }
+    if (unrejected) {
+        std::scoped_lock lock{rejected_mutex};
+        rejected_native.clear();
+    }
+    // shader_infos may point at removed programs: every channel must refresh its stages.
+    for (const size_t id : active_channel_ids) {
+        channel_storage[id].maxwell3d.dirty.flags[VideoCommon::Dirty::Shaders] = true;
+    }
+    LOG_INFO(HW_GPU, "Debug server rejections applied: {} cached programs dropped{}", ranges.size(),
+             unrejected ? ", earlier rejections forgotten" : "");
 }
 
 ShaderCache::ShaderCache(Tegra::MaxwellDeviceMemoryManager& device_memory_)
@@ -181,6 +252,7 @@ bool ShaderCache::RefreshStages(std::array<u64, 6>& unique_hashes) try {
             }
         }
         shader_infos[index] = shader_info;
+        vertex_attribute_masks[index] = shader_info->vertex_attribute_mask;
         unique_hashes[index] = shader_info->unique_hash;
         if (mesh && (program == Tegra::Engines::Maxwell3D::Regs::ShaderType::VertexB ||
                      program == Tegra::Engines::Maxwell3D::Regs::ShaderType::Tessellation)) {
@@ -236,6 +308,12 @@ const ShaderInfo* ShaderCache::ComputeShader() {
                                                      *kepler_compute, *gpu_memory, bank, offset);
                                              }))
             throw Shader::Ampere::TrapGuardError{};
+    } else if (kepler_compute->IsNativeMode() && IsRejected(*cpu_shader_addr)) {
+        // A rejected program fails the same way on every dispatch. GetGraphicsEnvironments
+        // skips those draws without rethrowing; doing the same here avoids two C++ throws, a
+        // mutex-guarded insert and an exception_ptr for each dispatch of the program. The
+        // caller already turns a missing shader into a failed dispatch.
+        return nullptr;
     } else {
         try {
             RethrowIfRejected(*cpu_shader_addr);
@@ -255,6 +333,10 @@ const ShaderInfo* ShaderCache::ComputeShader() {
         DlssContract::IsFastFusionCandidate(program_id,
                                             shader->lowered_native->native_program_key)) {
         kepler_compute->TraceDlssContract(shader->lowered_native->native_program_key);
+    }
+    if (kepler_compute->IsNativeMode() && shader->lowered_native &&
+        kepler_compute->BypassOotNetwork(program_id, shader->lowered_native->native_program_key)) {
+        throw FireEmblemUpscale::DispatchReplaced{};
     }
     if (kepler_compute->IsNativeMode() && shader->lowered_native &&
         kepler_compute->ProcessGameDlss(program_id, shader->lowered_native->native_program_key)) {
@@ -277,16 +359,26 @@ bool ShaderCache::IsRejected(VAddr addr) {
 
 void ShaderCache::RememberRejection(VAddr addr) {
     std::scoped_lock lock{rejected_mutex};
+    if (rejected_native.contains(addr)) {
+        // Called from a catch block: keep the first exception for that address instead of
+        // capturing and inserting a new one on every rejected dispatch.
+        return;
+    }
     rejected_native.emplace(addr, std::current_exception());
+    // InnerInvalidation only reaches InvalidateRegions on marked pages, and a rejection can
+    // outlive (or precede) the registration that marked its page.
+    page_filter.Mark(addr, 1);
     rejected_lowest.store((std::min)(rejected_lowest.load(std::memory_order_relaxed), addr),
                           std::memory_order_relaxed);
     rejected_highest.store((std::max)(rejected_highest.load(std::memory_order_relaxed), addr),
                            std::memory_order_relaxed);
 }
 
-void ShaderCache::GetGraphicsEnvironments(GraphicsEnvironments& result,
-                                          const std::array<u64, NUM_PROGRAMS>& unique_hashes) {
+size_t ShaderCache::GetGraphicsEnvironments(GraphicsEnvironments& result,
+                                            const std::array<u64, NUM_PROGRAMS>& unique_hashes,
+                                            bool snapshot) {
     size_t env_index{};
+    size_t snapshot_bytes{};
     const GPUVAddr base_addr{maxwell3d->regs.program_region.Address()};
     const bool native = maxwell3d->GetNativeMacroEngine().native_turing;
     for (size_t index = 0; index < NUM_PROGRAMS; ++index) {
@@ -303,8 +395,12 @@ void ShaderCache::GetGraphicsEnvironments(GraphicsEnvironments& result,
         env = GraphicsEnvironment{*maxwell3d, *gpu_memory, program, address, start_address,
                                   shader_infos[index]->lowered_native};
         env.SetCachedSize(shader_infos[index]->size_bytes);
+        if (snapshot) {
+            snapshot_bytes += env.TakeSnapshot();
+        }
         result.env_ptrs[env_index++] = &env;
     }
+    return snapshot_bytes;
 }
 
 ShaderInfo* ShaderCache::TryGet(VAddr addr) const {
@@ -322,6 +418,7 @@ void ShaderCache::Register(std::unique_ptr<ShaderInfo> data, VAddr addr, size_t 
 
     const VAddr addr_end = addr + size;
     Entry* const entry = NewEntry(addr, addr_end, data.get());
+    page_filter.Mark(addr, size);
 
     const u64 page_end = (addr_end + YUZU_PAGESIZE - 1) >> YUZU_PAGEBITS;
     for (u64 page = addr >> YUZU_PAGEBITS; page < page_end; ++page) {
@@ -449,6 +546,10 @@ const ShaderInfo* ShaderCache::MakeShaderInfo(GenericEnvironment& env, VAddr cpu
         info->size_bytes = env.ReadSizeBytes();
     }
     info->lowered_native = env.LoweredNative();
+    info->vertex_attribute_mask = VertexAttributeMaskOf(env);
+    if (env.IsNativeProgram() && env.ShaderStage() == Shader::Stage::VertexB) {
+        info->generic_read_mask = GenericReadMask(env.SPH());
+    }
     const size_t size_bytes{env.SourceSizeBytes() ? env.SourceSizeBytes() : info->size_bytes};
     const ShaderInfo* const result{info.get()};
     Register(std::move(info), cpu_addr, size_bytes);

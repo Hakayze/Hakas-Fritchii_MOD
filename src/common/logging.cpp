@@ -8,7 +8,10 @@
 #include <chrono>
 #include <climits>
 #include <cstdlib>
+#include <deque>
+#include <mutex>
 #include <regex>
+#include <string_view>
 #include <thread>
 
 #if defined(__ANDROID__)
@@ -30,6 +33,7 @@
 #include "common/fs/path_util.h"
 #include "common/literals.h"
 #include "common/polyfill_thread.h"
+#include "common/scm_rev.h"
 #include "common/thread.h"
 
 #include "common/logging.h"
@@ -249,8 +253,23 @@ struct FileBackend final : public Backend {
         void(FS::RemoveFile(old_filename));
         void(FS::RenameFile(filename, old_filename));
         file.emplace(filename, FS::FileAccessMode::Write, FS::FileType::TextFile);
+        path = filename;
+        if (!file->IsOpen()) {
+            // Another Fritchii still holds the log (one that never finished closing, e.g. after
+            // an update's restart): without this the session logged nothing and Export Log sent
+            // that process's old log (a v5.3 log in a v5.5 export, 2026-11-09).
+            auto busy = filename;
+            busy.replace_extension();
+            busy += ".busy.txt";
+            file.emplace(busy, FS::FileAccessMode::Write, FS::FileType::TextFile);
+            path = busy;
+            primary_locked = true;
+        }
     }
     ~FileBackend() noexcept override = default;
+
+    std::filesystem::path path;
+    bool primary_locked = false;
 
     void Write(const Entry& entry) noexcept override {
         if (!enabled)
@@ -270,8 +289,18 @@ struct FileBackend final : public Backend {
                         return std::string{s};
                 return std::string{};
             }();
-            if (!username.empty())
+            if (!username.empty()) {
+                // The build version can contain the username ("Frizti v2" for user "Frizt").
+                const std::string_view version{Common::g_build_version};
+                const bool keep_version =
+                    !version.empty() && version.find(username) != std::string_view::npos &&
+                    message.find(version) != std::string::npos;
+                if (keep_version)
+                    boost::replace_all(message, version, "\x01");
                 boost::replace_all(message, username, "user");
+                if (keep_version)
+                    boost::replace_all(message, "\x01", version);
+            }
         }
 #endif
         bytes_written += file->WriteSpan(std::span<const char>{message.begin(), message.end()});
@@ -302,6 +331,33 @@ private:
     bool enabled = true;
 };
 #endif
+/// @brief Backend that keeps the last lines in memory, off unless the debug server turns it on
+struct RingBackend final : public Backend {
+    void Write(const Entry& entry) noexcept override {
+        if (capacity.load(std::memory_order_relaxed) == 0) {
+            return;
+        }
+        try {
+            std::string text = FormatLogMessage(entry);
+            if (!text.empty() && text.back() == '\n') {
+                text.pop_back();
+            }
+            std::scoped_lock lock{mutex};
+            lines.push_back({next_sequence++, std::move(text)});
+            while (lines.size() > capacity.load(std::memory_order_relaxed)) {
+                lines.pop_front();
+            }
+        } catch (const std::exception&) {
+            // Out of memory: drop the line rather than the process.
+        }
+    }
+    void Flush() noexcept override {}
+
+    std::atomic<std::size_t> capacity{};
+    std::mutex mutex;
+    std::deque<RingLine> lines;
+    u64 next_sequence = 1;
+};
 #ifdef _WIN32
 /// @brief Backend that writes to Visual Studio's output window
 struct DebuggerBackend final : public Backend {
@@ -345,6 +401,7 @@ struct Impl {
     template<typename F>
     void ForEachBackend(F&& lambda) noexcept {
         lambda(static_cast<Backend&>(color_console_backend));
+        lambda(static_cast<Backend&>(ring_backend));
 #ifndef __OPENORBIS__
         if (file_backend)
             lambda(static_cast<Backend&>(*file_backend));
@@ -359,6 +416,7 @@ struct Impl {
 
     Filter filter;
     ColorConsoleBackend color_console_backend{};
+    RingBackend ring_backend{};
 #ifndef __OPENORBIS__
     std::optional<FileBackend> file_backend;
 #endif
@@ -415,6 +473,21 @@ void Stop() {
         logging_instance->ForEachBackend([](Backend& backend) { backend.Flush(); });
 }
 
+std::filesystem::path FilePath(bool* primary_locked) {
+    if (primary_locked) {
+        *primary_locked = false;
+    }
+#ifndef __OPENORBIS__
+    if (logging_instance && logging_instance->file_backend) {
+        if (primary_locked) {
+            *primary_locked = logging_instance->file_backend->primary_locked;
+        }
+        return logging_instance->file_backend->path;
+    }
+#endif
+    return {};
+}
+
 void SetGlobalFilter(const Filter& filter) {
     if (logging_instance)
         logging_instance->filter = filter;
@@ -423,6 +496,31 @@ void SetGlobalFilter(const Filter& filter) {
 void SetColorConsoleBackendEnabled(bool enabled) {
     if (logging_instance)
         logging_instance->color_console_backend.enabled = enabled;
+}
+
+void SetRingCapacity(std::size_t capacity) {
+    if (!logging_instance)
+        return;
+    auto& ring = logging_instance->ring_backend;
+    std::scoped_lock lock{ring.mutex};
+    ring.capacity.store(capacity, std::memory_order_relaxed);
+    while (ring.lines.size() > capacity) {
+        ring.lines.pop_front();
+    }
+}
+
+std::vector<RingLine> ReadRing(u64 after) {
+    std::vector<RingLine> result;
+    if (!logging_instance)
+        return result;
+    auto& ring = logging_instance->ring_backend;
+    std::scoped_lock lock{ring.mutex};
+    for (const RingLine& line : ring.lines) {
+        if (line.sequence > after) {
+            result.push_back(line);
+        }
+    }
+    return result;
 }
 
 bool IsLevelEnabled(Class log_class, Level log_level) {

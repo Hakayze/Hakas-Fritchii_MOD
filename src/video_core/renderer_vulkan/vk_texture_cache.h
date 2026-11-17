@@ -75,6 +75,28 @@ struct ByteAddressedRange {
     return VkExtent2D{width / 2, height};
 }
 
+/// What a pooled VkImage was made with (EDEN_NX2_EXP42): the parts of its VkImageCreateInfo
+/// that differ between texture cache images, and its view format list (a stable table entry,
+/// compared by address). valid is false for images the pool never takes.
+struct ImagePoolKey {
+    bool valid{};
+    VkImageCreateFlags flags{};
+    VkImageType type{};
+    VkFormat format{};
+    u32 width{};
+    u32 height{};
+    u32 depth{};
+    u32 levels{};
+    u32 layers{};
+    VkSampleCountFlagBits samples{};
+    VkImageTiling tiling{};
+    VkImageUsageFlags usage{};
+    const VkFormat* view_formats{};
+    size_t view_format_count{};
+
+    bool operator==(const ImagePoolKey&) const noexcept = default;
+};
+
 class TextureCacheRuntime {
 public:
     explicit TextureCacheRuntime(const Device& device_, Scheduler& scheduler_,
@@ -117,7 +139,27 @@ public:
         return memory_allocator.MemoryPressureEvents();
     }
 
+    u32 FailedImages() const noexcept {
+        return memory_allocator.FailedImages();
+    }
+
+    /// EDEN_NX2_EXP42 (fable_answer_12 2B): VkImages of deleted render targets, kept once the
+    /// GPU is done with them for the next image made with the same create info. A null image
+    /// when none is pooled (or the switch is off).
+    [[nodiscard]] vk::Image TakePooledImage(const ImagePoolKey& key);
+
+    /// Keeps `image` (GPU work on it done, `bytes` of device memory) for TakePooledImage.
+    void PoolImage(const ImagePoolKey& key, vk::Image image, u64 bytes);
+
+    /// Device memory the pool holds: counted by the driver, not by the texture cache.
+    [[nodiscard]] u64 PooledImageBytes() const noexcept {
+        return image_pool_bytes;
+    }
+
     void LogMemoryStatistics() const;
+
+    /// EDEN_NX2_MEM_TRACE: staging buffers, then the process, DXGI and VMA (LogMemoryTrace).
+    void LogMemoryTrace();
 
     /// True when ASTC is re-compressed to BC3 and opaque images may use BC1 instead.
     bool UseOpaqueAstcFormat() const;
@@ -251,6 +293,13 @@ public:
                          std::array<f32, 2> motion_scale);
     std::unique_ptr<Fsr3Upscaler> fsr3_upscaler;
     bool fsr3_unsupported{};
+
+    /// The LOD bias Ocarina's FSR adds to mipmapped samplers this session (0 for other games or
+    /// upscalers), resolved on first use.
+    [[nodiscard]] f32 OcarinaFsrLodBias();
+    std::optional<f32> ocarina_fsr_lod_bias;
+    /// Set when the Ocarina upscaler fails during the session: samplers drop the bias again.
+    bool ocarina_fsr_failed{};
     /// The game DLSS network's health check (ProbeGameDlssOutput), created on first use.
     std::unique_ptr<DlssNetworkProbe> dlss_network_probe;
     std::optional<std::chrono::steady_clock::time_point> fsr3_last_evaluation;
@@ -340,6 +389,32 @@ public:
         vk::Buffer bridge;
     };
     std::deque<PendingByteAddressedShadow> pending_byte_addressed_shadows;
+
+    /// EXP42's pool, oldest first. Capped at ImagePoolMaxBytes and ImagePoolMaxFrames of age,
+    /// emptied when the switch goes off or images stop fitting in device memory.
+    struct PooledImage {
+        ImagePoolKey key;
+        vk::Image image;
+        u64 bytes;
+        u64 frame;
+    };
+    static constexpr u64 ImagePoolMaxBytes = u64{512} << 20;
+    /// EXP42=2 pools the big dedicated render targets too (a 2560x1440 one is ~30 MiB): 512 MiB
+    /// held ~17 of them and evicted 1,150-1,400 images a 600 frames in Castle Town (2026-11-10).
+    static constexpr u64 ImagePoolMaxBytesDedicated = u64{1536} << 20;
+    [[nodiscard]] static u64 ImagePoolCap();
+    static constexpr u64 ImagePoolMaxFrames = 180;
+    std::deque<PooledImage> image_pool;
+    u64 image_pool_bytes{};
+    u64 image_pool_frame{};
+    u32 image_pool_seen_pressure{};
+    u32 image_pool_seen_failed{};
+    /// Since the last report (TickFrame, every 600 frames while the pool is in use).
+    u64 image_pool_taken{};
+    u64 image_pool_missed{};
+    u64 image_pool_given{};
+    u64 image_pool_evicted{};
+    void TrimImagePool(u64 max_bytes);
 };
 
 class Framebuffer {
@@ -476,6 +551,11 @@ public:
     Image(Image&&) = default;
     Image& operator=(Image&&) = default;
 
+    /// No memory was left to make it: the texture cache drops it instead of using it.
+    [[nodiscard]] bool OutOfMemory() const noexcept {
+        return !original_image && info.type != VideoCommon::ImageType::Buffer;
+    }
+
     void UploadMemory(VkBuffer buffer, VkDeviceSize offset,
                       std::span<const VideoCommon::BufferImageCopy> copies);
 
@@ -509,6 +589,15 @@ public:
     [[nodiscard]] vk::Image::MemoryBlock MemoryBlock() const noexcept {
         return original_image.GetMemoryBlock();
     }
+
+    /// EXP42: whether the image took a pooled VkImage (the slow clear log counts them).
+    [[nodiscard]] bool FromPool() const noexcept {
+        return from_pool;
+    }
+
+    /// EXP42: the deleted image's VkImages go to the runtime's pool instead of being destroyed,
+    /// when eligible. Called once the GPU is done with them (TextureCache::TickFrame).
+    void ReleaseToPool();
 
     /// Returns true when the image is already initialized and mark it as initialized
     [[nodiscard]] bool ExchangeInitialization() noexcept {
@@ -658,6 +747,12 @@ private:
 
     /// Records a clear of the whole image to zero.
     void ClearTiles();
+
+    /// EXP42: what original_image and scaled_image were made with, for the image pool.
+    /// Declared before them: their initializers fill these in.
+    ImagePoolKey original_pool_key;
+    ImagePoolKey scaled_pool_key;
+    bool from_pool = false; ///< original_image came from the pool
 
     vk::Image original_image;
     vk::Image scaled_image;
@@ -823,6 +918,15 @@ public:
 
     [[nodiscard]] VkSampler HandleFor(const ImageView& image_view, bool is_depth);
 
+    /// The guest descriptor and the host state built from it, for EDEN_NX2_FRAME_DUMP_SAMPLED.
+    [[nodiscard]] const Tegra::Texture::TSCEntry& Descriptor() const noexcept {
+        return descriptor;
+    }
+
+    [[nodiscard]] const VkSamplerCreateInfo& CreateInfo() const noexcept {
+        return base_ci;
+    }
+
 private:
     struct VariantKey {
         bool reduce_anisotropy;
@@ -830,6 +934,8 @@ private:
         bool drop_reduction;
         bool drop_custom_border;
         bool srgb_border;
+        bool drop_compare;
+        bool drop_lod_bias; ///< the image was written by the GPU: no Ocarina FSR LOD bias
         std::array<VkComponentSwizzle, 4> swizzle;
 
         bool operator==(const VariantKey&) const noexcept = default;
@@ -854,6 +960,8 @@ private:
     std::vector<Variant> variants;
 
     const Device* device_ptr{nullptr};
+    const bool* ocarina_fsr_failed{}; ///< TextureCacheRuntime::ocarina_fsr_failed
+    Tegra::Texture::TSCEntry descriptor{};
     VkSamplerCreateInfo base_ci{};
     VkSamplerReductionModeEXT reduction_mode{VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT};
     std::array<float, 4> border_color{};
@@ -863,6 +971,7 @@ private:
     bool has_added_anisotropy{};
     bool has_linear_filtering{};
     bool has_depth_comparison{};
+    f32 added_lod_bias{}; ///< Ocarina FSR part of base_ci.mipLodBias
     bool has_minmax_reduction{};
     bool has_custom_border_colors{};
     bool has_srgb_border_color{};

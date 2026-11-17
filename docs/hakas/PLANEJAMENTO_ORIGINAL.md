@@ -1,3 +1,5 @@
+> Histórico da base nx2 anterior. A fonte atual é o Fritchii v5.8.4: consulte [BASE_CORRECTED.md](BASE_CORRECTED.md). Os testes registrados aqui não validam um novo build dessa versão.
+
 > Documento histórico de pesquisa, elaborado em 12/11/2026 sob o título “Fritchii Cinematic UI”. O nome atual é **Hakas-Fritchii_MOD**.
 >
 > O conteúdo abaixo foi preservado. Afirmações sobre o estado da entrega ou ausência de consulta ao Gemini descrevem aquela data. O vídeo, os quadros e o pacote mencionados não estão incluídos neste repositório. Para as decisões posteriores e correções, consultar [DECISOES.md](DECISOES.md), [WINDOWS.md](WINDOWS.md) e [ROADMAP.md](ROADMAP.md).

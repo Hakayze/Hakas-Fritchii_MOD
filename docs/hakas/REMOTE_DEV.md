@@ -1,3 +1,5 @@
+> Histórico da base nx2 anterior. A fonte atual é o Fritchii v5.8.4: consulte [BASE_CORRECTED.md](BASE_CORRECTED.md). Os testes registrados aqui não validam um novo build dessa versão.
+
 # Desenvolvimento remoto e validação Windows
 
 Este guia se aplica ao `Hakayze/Hakas-Fritchii_MOD`. A branch principal é `nx2`, que deve permanecer estável até revisão e validação. O projeto ainda está em preparação (M0); compilar o frontend clássico não comprova que a futura interface cinematográfica funciona.

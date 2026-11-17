@@ -1,42 +1,99 @@
 # Hakas-Fritchii_MOD
 
-Interface cinematográfica 3D nativa para o [Fritchii](https://github.com/Frizti/Fritchii), inspirada na experiência visual do BoxShelf.
+Personalização do **Fritchii v5.8.4** fornecido pelo usuário, com sua interface nativa preservada. A fonte correta é o tag `fritchii-v5.8.4`, commit `4f5c53149b7e17d1c24445f68d79a83a3b2a17f9`, e não o `nx2` upstream usado inicialmente.
 
-O projeto pretende oferecer dois layouts selecionáveis: **Clássico**, com a interface existente, e **Cinematográfico**, com C++, QML e Qt Quick 3D. Ambos deverão compartilhar biblioteca, configurações, controles, saves e inicialização dos jogos.
+Veja [a identificação da base](docs/hakas/BASE_CORRECTED.md), [a documentação Hakas](docs/hakas/README.md) e [o cliente de revisão Gemini/DeepSeek](tools/ai_review/README.md). O protótipo 3D anterior está preservado no PR #2 para adaptação; build e testes da base correta têm validação própria.
 
-## Estado atual
+---
 
-**Preparação e documentação.** O código-base do Fritchii foi preservado. A interface cinematográfica ainda não foi implementada ou compilada neste projeto; não há um executável Hakas validado para download.
+<!--
+# SPDX-FileCopyrightText: Copyright 2025 Eden Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
 
-O próximo marco é compilar e executar o Fritchii original no Windows e validar uma página Qt Quick 3D mínima com troca de layouts.
+# SPDX-FileCopyrightText: 2018 yuzu Emulator Project
+# SPDX-License-Identifier: GPL-2.0-or-later
+-->
 
-## Documentação
+<p align="center">
+  <img src="dist/branding/lichii_icon_with_logo.png" alt="Lichii" width="600">
+</p>
 
-- [Visão do projeto e arquitetura](docs/hakas/README.md)
-- [Roteiro e critérios de conclusão](docs/hakas/ROADMAP.md)
-- [Compatibilidade e validação no Windows](docs/hakas/WINDOWS.md)
-- [Decisões técnicas e revisão das contribuições](docs/hakas/DECISOES.md)
-- [Responsabilidades e colaboração entre IAs](docs/hakas/COLABORACAO.md)
-- [Planejamento original de 12/11/2026](docs/hakas/PLANEJAMENTO_ORIGINAL.md)
-- [Guia de compilação herdado](docs/Build.md)
+# Lichii
 
-## Diretrizes
+Lichii is an experimental, open-source Nintendo Switch and Switch 2 emulator written in C++. It builds on Eglantine, Eden, yuzu and Sudachi, preserving their contributions while developing this fork's game compatibility and renderer fixes.
 
-- Manter o sistema de emulação existente.
-- Construir a nova interface dentro do próprio aplicativo.
-- Preservar o modo Clássico e sua compatibilidade.
-- Validar desempenho e fidelidade visual com medições e capturas.
-- Distribuir as dependências necessárias no pacote final.
+This is an independent fork, not an official release of those upstream projects. Lichii is not affiliated with Nintendo.
 
-A proposta não utiliza Electron, WebEngine ou um launcher externo para desenhar a interface.
+## Downloads and setup
 
-## Origem e licenças
+Published builds belong on this fork's [releases page](https://github.com/zortos293/Eglantine/releases). The repository still uses its historical Eglantine name; the desktop application is now Lichii.
 
-Fork de [Frizti/Fritchii](https://github.com/Frizti/Fritchii), iniciado no commit `f66ea633db6058efe31a9611718019e5bd1667eb`. Referências visuais: [BoxShelf source](https://github.com/sassiestrhihno/boxshelf-source) e [BoxShelf beta](https://github.com/sassiestrhihno/boxshelf-beta).
+On Windows, extract the entire build archive and run **lichii.exe**. Only use games and system files you have legally obtained. Games, keys and firmware are not included.
 
-Os avisos de autoria e as licenças herdadas permanecem aplicáveis. Consulte [LICENSE.txt](LICENSE.txt), [LICENSES](LICENSES) e o inventário do planejamento. Qt Quick 3D é disponibilizado sob GPLv3 ou licença comercial; assets de terceiros exigem avaliação própria antes de distribuição.
+### Existing saves and settings
 
-Mensagem original de Frizti preservada:
+Fritchii keeps its own profile: `%APPDATA%\fritchii` on Windows, and the `fritchii` directories under `$XDG_DATA_HOME`, `$XDG_CONFIG_HOME` and `$XDG_CACHE_HOME` on Linux and macOS. An existing portable `user/` directory still takes priority and is not imported or changed.
 
-> Hi everybody i'm frizti i make things that work hopefully i love you
+On the first launch Fritchii copies your newest existing profile (an earlier Fritchii or Eden in `%APPDATA%\eden`, Lichii 150+ in `%APPDATA%\lichii`, else yuzu, suyu, sudachi or citron) into its folder and shows what it copied. Settings, keys, mods and saves are copied; caches are not, so shaders are prepared again once. The old folder is never changed. If the emulator using it is still open, close it and start Fritchii again. An interrupted copy is put back and retried on the next launch.
 
+## Compatibility and issue reports
+
+Compatibility and performance vary by game, hardware and driver. Rendering errors, stutters and crashes remain possible. Passing automated tests does not establish that a game renders correctly, and this project makes no universal frame-rate guarantee.
+
+When [reporting an issue](https://github.com/zortos293/Eglantine/issues), include:
+
+- The exact build, game version, CPU, GPU and driver version.
+- Relevant settings and steps to reproduce the problem.
+- A screenshot and the log from the affected session, after checking it for personal information.
+
+Do not upload game files, keys, firmware or private account information.
+
+## Building and contributing
+
+See the [build guide](docs/Build.md), [user documentation](docs/user/README.md) and [coding guidelines](docs/Coding.md). Some inherited documentation and internal build target names still use upstream names. The GUI build target remains `yuzu`; its output is `lichii.exe` on Windows and `lichii` on other desktop platforms.
+
+Keep changes focused and distinguish code-level checks from actual gameplay testing.
+
+## Artwork
+Art created by YOB (yobslab)
+The supplied Lichii logo, icon and library artwork are in [dist/branding](dist/branding). Windows, Linux and macOS icon resources are generated from that artwork by [Generate-LichiiIcons.ps1](tools/Generate-LichiiIcons.ps1).
+
+## Support Lichii
+
+Lichii is free and stays free. If you want to help, you can donate in crypto. Donations help pay for the AI tools and build machines used to develop this open-source project faster.
+
+**Solana (SOL)**
+```text
+JepEjfyWjGjhJvHSrqj52KtLjcbbbmUh1iGqerYBF4w
+```
+
+**Ethereum (ETH)**
+```text
+0x055ABa1b80Bc35C836Ce7E9F47c2b3d6C75b5534
+```
+
+**Bitcoin (BTC)**
+```text
+bc1qcvxdpf4qvdhqp8ee4s355cjmxrzsphsdwpl8w4
+```
+
+**BNB Smart Chain (BNB)**
+```text
+0x055ABa1b80Bc35C836Ce7E9F47c2b3d6C75b5534
+```
+
+**Polygon**
+```text
+0x055ABa1b80Bc35C836Ce7E9F47c2b3d6C75b5534
+```
+
+Send each coin on its matching network. Coins sent on the wrong network can't be recovered.
+
+> [!NOTE]
+> Donations are voluntary gifts and are non-refundable. A donation does not buy any product, service, perk, early access, exclusive build, priority support or say in the project. Every release stays free and public for everyone.
+
+## Credits and license
+
+Lichii inherits the work of the Eglantine, Eden, yuzu and Sudachi projects and their contributors, including Eglantine's original developer Camille LaVey. Original copyright notices and third-party licenses are retained.
+
+See [LICENSE.txt](LICENSE.txt) and the source files for applicable license terms.

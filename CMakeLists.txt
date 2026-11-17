@@ -475,6 +475,9 @@ if (zstd_ADDED)
     add_library(zstd::libzstd ALIAS libzstd_static)
 endif()
 
+# nxformat (.nx game archives)
+include(NxFormat)
+
 # nlohmann
 AddJsonPackage(nlohmann)
 
@@ -732,6 +735,7 @@ add_subdirectory(src)
 
 if (ENABLE_DEBUG_TOOLS)
     add_subdirectory(tools/shader-sweep)
+    add_subdirectory(tools/nx2-precompile)
     add_subdirectory(tools/maxwell-disas)
     add_subdirectory(tools/maxwell-spirv)
     add_subdirectory(tools/maxwell-ir)

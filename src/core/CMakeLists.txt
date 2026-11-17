@@ -46,6 +46,10 @@ add_library(core STATIC
     debugger/gdbstub.h
     debugger/gdbstub_arch.cpp
     debugger/gdbstub_arch.h
+    debugger/nx2_debug_server.cpp
+    debugger/nx2_debug_server.h
+    debugger/nx2_debug_tools.cpp
+    debugger/nx2_debug_tools.h
     device_memory.cpp
     device_memory.h
     device_memory_manager.h
@@ -59,6 +63,8 @@ add_library(core STATIC
     file_sys/content_archive.h
     file_sys/control_metadata.cpp
     file_sys/control_metadata.h
+    file_sys/decrypted_nca.cpp
+    file_sys/decrypted_nca.h
     file_sys/errors.h
     file_sys/fs_directory.h
     file_sys/fs_file.h
@@ -134,6 +140,8 @@ add_library(core STATIC
     file_sys/registered_cache.h
     file_sys/nup_container.cpp
     file_sys/nup_container.h
+    file_sys/nx2_shader_extract.cpp
+    file_sys/nx2_shader_extract.h
     file_sys/nup_writer.cpp
     file_sys/nup_writer.h
     file_sys/romfs.cpp
@@ -373,6 +381,8 @@ add_library(core STATIC
     hle/kernel/svc/svc_light_ipc.cpp
     hle/kernel/svc/svc_lock.cpp
     hle/kernel/svc/svc_memory.cpp
+    hle/kernel/svc/svc_nx2_oot_poll.cpp
+    hle/kernel/svc/svc_nx2_oot_present.cpp
     hle/kernel/svc/svc_physical_memory.cpp
     hle/kernel/svc/svc_port.cpp
     hle/kernel/svc/svc_power_management.cpp
@@ -1172,6 +1182,8 @@ add_library(core STATIC
     loader/nsp.h
     loader/nup.cpp
     loader/nup.h
+    loader/nx.cpp
+    loader/nx.h
     loader/xci.cpp
     loader/xci.h
     memory.cpp
@@ -1247,7 +1259,7 @@ target_link_libraries(core PRIVATE
     RenderDoc::API
     ZLIB::ZLIB)
 
-target_link_libraries(core PUBLIC httplib::httplib zstd::zstd)
+target_link_libraries(core PUBLIC httplib::httplib zstd::zstd nxformat_reader)
 
 if (ENABLE_WEB_SERVICE)
     target_compile_definitions(core PUBLIC ENABLE_WEB_SERVICE)
@@ -1303,6 +1315,13 @@ endif()
 if (ENABLE_LTO AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
     # Fibers can migrate between host threads; keep kernel TLS lookups outside LTO callers.
     set_source_files_properties(hle/kernel/kernel.cpp PROPERTIES COMPILE_OPTIONS -fno-lto)
+elseif (MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_FLAGS_RELEASE MATCHES "-flto")
+    # The same for clang-cl builds that pass -flto=thin in their flags (the PGO release build), for
+    # the whole kernel: with a newer Ocarina profile, ThinLTO dropped k_thread.cpp's and
+    # k_scheduler.cpp's definitions (KThread::Run, ~KThread, GetCurrentThread, ... undefined at the
+    # link, though the archive index lists them). The kernel isn't hot for Ocarina.
+    file(GLOB lichii_kernel_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hle/kernel/*.cpp)
+    set_source_files_properties(${lichii_kernel_sources} PROPERTIES COMPILE_OPTIONS -fno-lto)
 endif()
 
 create_target_directory_groups(core)

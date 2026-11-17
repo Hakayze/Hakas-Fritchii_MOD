@@ -1,3 +1,5 @@
+> Histórico da base nx2 anterior. A fonte atual é o Fritchii v5.8.4: consulte [BASE_CORRECTED.md](BASE_CORRECTED.md). Os testes registrados aqui não validam um novo build dessa versão.
+
 # M0 — validação do build clássico Windows
 
 Registro: 16/11/2026. **Build e inspeção do pacote aprovados; abertura no Windows ainda pendente.** Esta evidência cobre o frontend clássico, sem implementação cinematográfica.

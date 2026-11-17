@@ -5,6 +5,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
+#include <atomic>
+#include <thread>
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -13,11 +19,15 @@
 #include "core/hle/kernel/k_page_table.h"
 #include "core/hle/kernel/k_process.h"
 #include "memory_manager.h"
+#include "video_core/async_translate.h"
 #include "video_core/guest_memory.h"
 #include "video_core/nx2.h"
+#include "video_core/nx2_debug_control.h"
+#include "video_core/nx2_perf.h"
 #include "video_core/host1x/host1x.h"
 #include "video_core/invalidation_accumulator.h"
 #include "video_core/memory_manager.h"
+#include "video_core/nx2_profile.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_base.h"
 #include "video_core/texture_cache/util.h"
@@ -155,6 +165,10 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
         std::unique_lock<std::mutex> lock(guard);
         kind_map.Map(gpu_addr, gpu_addr + size, kind);
     }
+    if (VideoCommon::Nx2Perf::On(VideoCommon::Nx2Perf::Opt::Bounds)) {
+        UpdateContinuousRuns(gpu_addr, size);
+    }
+    map_serial.fetch_add(1, std::memory_order_release);
     return gpu_addr;
 }
 
@@ -210,6 +224,10 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
         std::unique_lock<std::mutex> lock(guard);
         kind_map.Map(gpu_addr, gpu_addr + size, kind);
     }
+    if (VideoCommon::Nx2Perf::On(VideoCommon::Nx2Perf::Opt::Bounds)) {
+        UpdateContinuousRuns(gpu_addr, size);
+    }
+    map_serial.fetch_add(1, std::memory_order_release);
     return gpu_addr;
 }
 
@@ -217,13 +235,24 @@ void MemoryManager::BindRasterizer(VideoCore::RasterizerInterface* rasterizer_) 
     rasterizer = rasterizer_;
 }
 
+namespace {
+// The page table lock is only taken while translation workers read guest memory
+// (EDEN_NX2_ASYNC_TRANSLATE=1 or 2); otherwise the writers below run exactly as before.
+std::unique_lock<std::shared_mutex> LockPageTableForWrite(std::shared_mutex& lock) {
+    static const bool enabled = VideoCommon::AsyncTranslateWorkers();
+    return enabled ? std::unique_lock{lock} : std::unique_lock<std::shared_mutex>{};
+}
+} // Anonymous namespace
+
 GPUVAddr MemoryManager::Map(GPUVAddr gpu_addr, DAddr dev_addr, std::size_t size, PTEKind kind, bool is_big_pages) {
+    const auto lock = LockPageTableForWrite(page_table_lock);
     if (is_big_pages)
         return BigPageTableOp(gpu_addr, dev_addr, size, kind, EntryType::Mapped);
     return PageTableOp(gpu_addr, dev_addr, size, kind, EntryType::Mapped);
 }
 
 GPUVAddr MemoryManager::MapSparse(GPUVAddr gpu_addr, std::size_t size, bool is_big_pages) {
+    const auto lock = LockPageTableForWrite(page_table_lock);
     if (is_big_pages)
         return BigPageTableOp(gpu_addr, 0, size, PTEKind::INVALID, EntryType::Reserved);
     return PageTableOp(gpu_addr, 0, size, PTEKind::INVALID, EntryType::Reserved);
@@ -240,13 +269,75 @@ void MemoryManager::Unmap(GPUVAddr gpu_addr, std::size_t size) {
     }
     page_stash.clear();
 
+    // Only around the table updates: the caches' unmap callbacks above stay outside the lock.
+    const auto lock = LockPageTableForWrite(page_table_lock);
     BigPageTableOp(gpu_addr, 0, size, PTEKind::INVALID, EntryType::Free);
     PageTableOp(gpu_addr, 0, size, PTEKind::INVALID, EntryType::Free);
+}
+
+bool MemoryManager::TryLockPageTableShared() const {
+    if (page_table_lock.try_lock_shared()) {
+        return true;
+    }
+    const auto give_up = std::chrono::steady_clock::now() + std::chrono::milliseconds{2};
+    do {
+        std::this_thread::yield();
+        if (page_table_lock.try_lock_shared()) {
+            return true;
+        }
+    } while (std::chrono::steady_clock::now() < give_up);
+    return false;
+}
+
+bool MemoryManager::ReadBlockGuarded(GPUVAddr gpu_src_addr, void* dest_buffer,
+                                     std::size_t size) const {
+    if (!TryLockPageTableShared()) {
+        return false;
+    }
+    ReadBlockUnsafe(gpu_src_addr, dest_buffer, size);
+    page_table_lock.unlock_shared();
+    return true;
+}
+
+std::optional<bool> MemoryManager::IsFullyMappedRangeGuarded(GPUVAddr gpu_addr,
+                                                             std::size_t size) const {
+    if (!TryLockPageTableShared()) {
+        return std::nullopt;
+    }
+    const bool mapped = IsFullyMappedRange(gpu_addr, size);
+    page_table_lock.unlock_shared();
+    return mapped;
 }
 
 std::optional<DAddr> MemoryManager::GpuToCpuAddress(GPUVAddr gpu_addr) const {
     if (!IsWithinGPUAddressRange(gpu_addr)) [[unlikely]] {
         return std::nullopt;
+    }
+    // The same few pages are looked up over and over (every draw rebinds its buffers and
+    // textures): a small per-thread cache of page translations, dropped whenever any entry
+    // changes (map_serial moves after each map or unmap). EDEN_NX2_NO_TRANSLATION_CACHE=1
+    // turns it off (Eglantine b1e650849e by kraibse: back thread 13.64 -> 13.25 ms a frame).
+    struct CachedPage {
+        u64 owner;
+        u64 serial;
+        u64 page;
+        u64 device_page;
+    };
+    static constexpr size_t CacheSize = 2048;
+    static thread_local std::array<CachedPage, CacheSize> cache{};
+    // Fritchii: EDEN_NX2_EXP63 (live, 0 = off) instead, so a fight session can flip it.
+    // The environment is read once: getenv takes the C runtime's lock, and this runs millions of
+    // times a second (a per-call getenv here made Castle Town run at 3 fps, 2026-11-10).
+    static const bool cache_allowed = std::getenv("EDEN_NX2_NO_TRANSLATION_CACHE") == nullptr;
+    const bool use_cache = cache_allowed && VideoCore::Nx2Debug::Experiment(63) != 0;
+    constexpr u64 SubpageBits = 12;
+    constexpr u64 SubpageMask = (u64{1} << SubpageBits) - 1;
+    const u64 owner_id = (u64{unique_identifier} << 1) | 1; // Never 0, the empty slot
+    const u64 page = gpu_addr >> SubpageBits;
+    const u64 serial = map_serial.load(std::memory_order_acquire);
+    CachedPage& slot = cache[(page ^ (page >> 11)) % CacheSize];
+    if (use_cache && slot.owner == owner_id && slot.page == page && slot.serial == serial) [[likely]] {
+        return slot.device_page + (gpu_addr & SubpageMask);
     }
     DAddr dev_addr;
     if (GetEntry(gpu_addr, true) != EntryType::Mapped) [[unlikely]] {
@@ -262,6 +353,9 @@ std::optional<DAddr> MemoryManager::GpuToCpuAddress(GPUVAddr gpu_addr) const {
         LOG_ERROR(HW_GPU, "GPU address {:#x} maps outside the device space, to {:#x}", gpu_addr,
                   dev_addr);
         return std::nullopt;
+    }
+    if (use_cache) {
+        slot = CachedPage{owner_id, serial, page, dev_addr - (gpu_addr & SubpageMask)};
     }
     return dev_addr;
 }
@@ -307,6 +401,15 @@ T MemoryManager::Read(GPUVAddr addr) const {
 
 template <typename T>
 void MemoryManager::Write(GPUVAddr addr, T data) {
+    // EDEN_NX2_EXP49: a download for a guest read not yet in guest memory would land over this
+    // write later. One relaxed load while none is pending.
+    if (VideoCore::g_read_downloads.load(std::memory_order_relaxed) != 0) [[unlikely]] {
+        if (const auto address = GpuToCpuAddress(addr);
+            address && rasterizer != nullptr &&
+            VideoCore::ReadDownloadsMayCover(*address, sizeof(T))) {
+            rasterizer->FinishRead(*address, sizeof(T));
+        }
+    }
     if (auto page_pointer{GetPointer(addr)}; page_pointer) {
         // NOTE: Avoid adding any extra logic to this fast-path block
         std::memcpy(page_pointer, &data, sizeof(T));
@@ -347,6 +450,78 @@ const u8* MemoryManager::GetPointer(GPUVAddr gpu_addr) const {
     }
 
     return memory.GetPointer<u8>(*address);
+}
+
+bool MemoryManager::HandlePointerCacheEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("EDEN_NX2_HANDLE_PTR_CACHE");
+        return value != nullptr && value[0] != '0';
+    }();
+    return enabled;
+}
+
+namespace {
+/// One thread's host pointers of the device pages it read last through one manager. Per thread,
+/// as DeviceMemoryManager's translations: a cache shared by threads could be emptied by one
+/// between another's lookup and its use.
+struct HostPageCache {
+    size_t owner{};             ///< MemoryManager::GetID (unique, never reused like `this`)
+    u64 map_generation{};       ///< MemoryManager::map_serial when the pointers were made
+    u64 device_generation{};    ///< DeviceMemoryManager::TranslationGeneration likewise
+    std::array<u64, 16> pages{}; ///< GPU page (4 KiB) + 1 per slot; 0: empty
+    std::array<const u8*, 16> hosts{};
+};
+thread_local HostPageCache t_host_pages;
+} // Anonymous namespace
+
+const u8* MemoryManager::CachedPagePointer(GPUVAddr addr) const {
+    namespace Profile = VideoCommon::Nx2Profile;
+    HostPageCache& cache = t_host_pages;
+    const u64 map_gen = map_serial.load(std::memory_order_acquire);
+    const u64 device_gen = memory.TranslationGeneration();
+    if (cache.owner != unique_identifier || cache.map_generation != map_gen ||
+        cache.device_generation != device_gen) {
+        cache = HostPageCache{
+            .owner = unique_identifier, .map_generation = map_gen, .device_generation = device_gen};
+    }
+    constexpr u64 host_page_mask = (u64{1} << cpu_page_bits) - 1;
+    const u64 page = addr >> cpu_page_bits;
+    const size_t slot = static_cast<size_t>(page) & (cache.pages.size() - 1);
+    if (cache.pages[slot] == page + 1) {
+        Profile::Add(Profile::Counter::PtrCacheHits, 1);
+        return cache.hosts[slot] + (addr & host_page_mask);
+    }
+    Profile::Add(Profile::Counter::PtrCacheMisses, 1);
+    // Device pages are 4 KiB: the host memory of one is contiguous, its neighbour's may not be.
+    const u8* const host = GetPointer(addr & ~host_page_mask);
+    if (host == nullptr) {
+        return nullptr;
+    }
+    cache.pages[slot] = page + 1;
+    cache.hosts[slot] = host;
+    return host + (addr & host_page_mask);
+}
+
+u32 MemoryManager::ReadHandleWord(GPUVAddr addr) const {
+    constexpr u64 host_page_mask = (u64{1} << cpu_page_bits) - 1;
+    if (!HandlePointerCacheEnabled() || (addr & host_page_mask) > host_page_mask + 1 - sizeof(u32) ||
+        OverlapsNativeSyncpointShim(addr, sizeof(u32))) {
+        return Read<u32>(addr);
+    }
+    const u8* const host = CachedPagePointer(addr);
+    if (host == nullptr) [[unlikely]] {
+        return Read<u32>(addr); // Unmapped: Read logs it and returns 0
+    }
+    u32 value;
+    std::memcpy(&value, host, sizeof(u32));
+    return value;
+}
+
+const u8* MemoryManager::GetPointerForDescriptor(GPUVAddr addr) const {
+    if (!HandlePointerCacheEnabled()) {
+        return GetPointer(addr);
+    }
+    return CachedPagePointer(addr);
 }
 
 #if defined(_MSC_VER) && !defined(__clang__) // no need for gcc / clang but msvc's compiler is more conservative with inlining.
@@ -503,20 +678,35 @@ void MemoryManager::WriteBlockImpl(GPUVAddr gpu_dest_addr, const void* src_buffe
     auto just_advance = [&]([[maybe_unused]] std::size_t page_index, [[maybe_unused]] std::size_t offset, std::size_t copy_amount) {
         src_buffer = static_cast<const u8*>(src_buffer) + copy_amount;
     };
+    // EDEN_NX2_EXP49: a download for a guest read not yet in guest memory would land over this
+    // write later. One relaxed load while none is pending.
+    const auto finish_reads = [this](DAddr dev_addr, std::size_t amount) {
+        if (VideoCore::g_read_downloads.load(std::memory_order_relaxed) != 0) [[unlikely]] {
+            if (rasterizer != nullptr && VideoCore::ReadDownloadsMayCover(dev_addr, amount)) {
+                rasterizer->FinishRead(dev_addr, amount);
+            }
+        }
+    };
     auto mapped_normal = [&](std::size_t page_index, std::size_t offset, std::size_t copy_amount) {
         const DAddr dev_addr_base = (DAddr(page_table[page_index]) << cpu_page_bits) + offset;
+        finish_reads(dev_addr_base, copy_amount);
         if (!unsafe) {
-            rasterizer->InvalidateRegion(dev_addr_base, copy_amount, which);
+            rasterizer->PrepareRegionWrite(dev_addr_base, copy_amount, which);
         }
         if (u8* physical = memory.GetPointer<u8>(dev_addr_base)) [[likely]] {
             std::memcpy(physical, src_buffer, copy_amount);
+        }
+        // After the copy: the buffer cache may upload the written bytes from guest memory.
+        if (!unsafe) {
+            rasterizer->InvalidateRegion(dev_addr_base, copy_amount, which);
         }
         src_buffer = static_cast<const u8*>(src_buffer) + copy_amount;
     };
     auto mapped_big = [&](std::size_t page_index, std::size_t offset, std::size_t copy_amount) {
         const DAddr dev_addr_base = (DAddr(big_page_table_dev[page_index]) << cpu_page_bits) + offset;
+        finish_reads(dev_addr_base, copy_amount);
         if (!unsafe) {
-            rasterizer->InvalidateRegion(dev_addr_base, copy_amount, which);
+            rasterizer->PrepareRegionWrite(dev_addr_base, copy_amount, which);
         }
         u8* const physical = IsBigPageContinuous(page_index) ? memory.GetPointer<u8>(dev_addr_base)
                                                              : nullptr;
@@ -524,6 +714,9 @@ void MemoryManager::WriteBlockImpl(GPUVAddr gpu_dest_addr, const void* src_buffe
             std::memcpy(physical, src_buffer, copy_amount);
         } else {
             memory.WriteBlockUnsafe(dev_addr_base, src_buffer, copy_amount);
+        }
+        if (!unsafe) {
+            rasterizer->InvalidateRegion(dev_addr_base, copy_amount, which);
         }
         src_buffer = static_cast<const u8*>(src_buffer) + copy_amount;
     };
@@ -545,6 +738,23 @@ void MemoryManager::WriteBlockUnsafe(GPUVAddr gpu_dest_addr, const void* src_buf
 void MemoryManager::WriteBlockCached(GPUVAddr gpu_dest_addr, const void* src_buffer, std::size_t size) {
     WriteBlockImpl(gpu_dest_addr, src_buffer, size, VideoCommon::CacheType::None, true);
     accumulator.Add(gpu_dest_addr, size);
+}
+
+void MemoryManager::WriteWordsCached(GPUVAddr gpu_dest_addr, const u32* words, std::size_t count) {
+    const std::size_t size = count * sizeof(u32);
+    // Words on Switch 2 sparse memory go one at a time, as Nx2BackSparseWrite saw them.
+    if (gpu_dest_addr + size > Tegra::g_nx2_sparse_low.load(std::memory_order_relaxed) &&
+        gpu_dest_addr < Tegra::g_nx2_sparse_high.load(std::memory_order_relaxed)) {
+        for (std::size_t i = 0; i < count; ++i) {
+            WriteBlockCached(gpu_dest_addr + i * sizeof(u32), words + i, sizeof(u32));
+        }
+        return;
+    }
+    WriteBlockImpl(gpu_dest_addr, words, size, VideoCommon::CacheType::None, true);
+    // The accumulator merges word by word differently from one range: keep its ranges.
+    for (std::size_t i = 0; i < count; ++i) {
+        accumulator.Add(gpu_dest_addr + i * sizeof(u32), sizeof(u32));
+    }
 }
 
 void MemoryManager::FlushRegion(GPUVAddr gpu_addr, size_t size,
@@ -598,6 +808,118 @@ bool MemoryManager::IsMemoryDirty(GPUVAddr gpu_addr, size_t size,
 }
 
 size_t MemoryManager::MaxContinuousRange(GPUVAddr gpu_addr, size_t size) const {
+    // Native storage buffers ask this for up to 8 MiB on each bind, and table pointers for up to
+    // 64 MiB, tens of thousands of times a second (13-17% of the GPU back thread walking pages):
+    // keep answers per thread until the page table changes. Keyed by address only: an answer
+    // for a size holds for any smaller size, as the run length capped at it.
+    struct Entry {
+        size_t owner;
+        GPUVAddr gpu_addr;
+        size_t size;
+        u64 serial;
+        size_t result;
+    };
+    thread_local std::array<Entry, 1024> cache{};
+    const u64 serial = map_serial.load(std::memory_order_acquire);
+    Entry& entry = cache[(gpu_addr * 0x9E3779B97F4A7C15ULL) >> 54];
+    if (entry.owner == unique_identifier + 1 && entry.gpu_addr == gpu_addr &&
+        entry.serial == serial && size <= entry.size) {
+        return (std::min)(entry.result, size);
+    }
+    const size_t result = MaxContinuousRangeUncached(gpu_addr, size);
+    entry = {unique_identifier + 1, gpu_addr, size, serial, result};
+    return result;
+}
+
+void MemoryManager::UpdateContinuousRuns(GPUVAddr gpu_addr, size_t size) {
+    // Every entry the operation set lies in these big pages; the walk reads nothing else there.
+    const GPUVAddr begin = gpu_addr & ~big_page_mask;
+    const GPUVAddr end =
+        (std::min)(Common::AlignUp(gpu_addr + size, big_page_size), address_space_size);
+    if (size == 0 || begin >= end) {
+        return;
+    }
+    std::vector<std::pair<GPUVAddr, ContinuousRun>> rebuilt;
+    const auto add = [&](GPUVAddr address, u64 length, DAddr device_addr) {
+        if (!rebuilt.empty()) {
+            auto& [run_begin, run] = rebuilt.back();
+            if (run.end == address && run.device_addr + (run.end - run_begin) == device_addr) {
+                run.end += length;
+                return;
+            }
+        }
+        rebuilt.push_back({address, {address + length, device_addr}});
+    };
+    std::scoped_lock lock{runs_guard};
+    // Runs that overlap or touch [begin, end) are cut at its edges and merged again.
+    auto it = continuous_runs.lower_bound(begin);
+    if (it != continuous_runs.begin() && std::prev(it)->second.end >= begin) {
+        --it;
+    }
+    if (it != continuous_runs.end() && it->first < begin) {
+        add(it->first, begin - it->first, it->second.device_addr);
+    }
+    std::optional<std::pair<GPUVAddr, ContinuousRun>> tail;
+    while (it != continuous_runs.end() && it->first <= end) {
+        if (it->second.end > end) {
+            tail = {end, {it->second.end, it->second.device_addr + (end - it->first)}};
+        }
+        it = continuous_runs.erase(it);
+    }
+    for (GPUVAddr page = begin; page < end; page += big_page_size) {
+        const EntryType big_entry = GetEntry(page, true);
+        if (big_entry == EntryType::Mapped) {
+            add(page, big_page_size,
+                DAddr(big_page_table_dev[PageEntryIndex(page, true)]) << cpu_page_bits);
+        } else if (big_entry == EntryType::Free) {
+            for (GPUVAddr small = page; small < page + big_page_size; small += page_size) {
+                if (GetEntry(small, false) == EntryType::Mapped) {
+                    add(small, page_size,
+                        DAddr(page_table[PageEntryIndex(small, false)]) << cpu_page_bits);
+                }
+            }
+        }
+    }
+    if (tail) {
+        add(tail->first, tail->second.end - tail->first, tail->second.device_addr);
+    }
+    for (const auto& run : rebuilt) {
+        continuous_runs.insert(continuous_runs.end(), run);
+    }
+}
+
+const MemoryManager::MappingSnapshot& MemoryManager::CurrentSnapshot() const {
+    struct View {
+        size_t owner;
+        u64 serial;
+        std::shared_ptr<const MappingSnapshot> snapshot;
+    };
+    thread_local std::array<View, 4> views{};
+    View& view = views[unique_identifier % views.size()];
+    const u64 serial = map_serial.load(std::memory_order_acquire);
+    if (view.owner == unique_identifier + 1 && view.serial == serial) {
+        return *view.snapshot;
+    }
+    std::scoped_lock lock{runs_guard};
+    if (!snapshot || snapshot_serial != serial) {
+        auto next = std::make_shared<MappingSnapshot>();
+        next->runs.reserve(continuous_runs.size());
+        for (const auto& [begin, run] : continuous_runs) {
+            next->runs.push_back({begin, run.end});
+        }
+        {
+            std::unique_lock<std::mutex> kind_lock(guard);
+            kind_map.ForEachRange(
+                [&](s64 start, PTEKind kind) { next->kinds.emplace_back(start, kind); });
+        }
+        snapshot = std::move(next);
+        snapshot_serial = serial;
+    }
+    view = {unique_identifier + 1, serial, snapshot};
+    return *view.snapshot;
+}
+
+size_t MemoryManager::MaxContinuousRangeUncached(GPUVAddr gpu_addr, size_t size) const {
     std::optional<DAddr> old_page_addr{};
     size_t range_so_far = 0;
     bool result{false};
@@ -637,7 +959,36 @@ size_t MemoryManager::MaxContinuousRange(GPUVAddr gpu_addr, size_t size) const {
     return range_so_far;
 }
 
-size_t MemoryManager::GetMemoryLayoutSize(GPUVAddr gpu_addr, size_t max_size) const {
+size_t MemoryManager::GetMemoryLayoutSize(GPUVAddr gpu_addr,
+                                          [[maybe_unused]] size_t max_size) const {
+    if (!VideoCommon::Nx2Perf::On(VideoCommon::Nx2Perf::Opt::Bounds)) {
+        return GetMemoryLayoutSizeUncached(gpu_addr);
+    }
+    // RangeMap::GetContinuousSizeFrom on the snapshot's copy of the kind map, without its lock.
+    size_t result = 0;
+    const s64 address = static_cast<s64>(gpu_addr);
+    const auto& kinds = CurrentSnapshot().kinds;
+    auto it = std::upper_bound(kinds.begin(), kinds.end(), address,
+                               [](s64 key, const auto& range) { return key < range.first; });
+    if (address >= 0 && it != kinds.begin() && std::prev(it)->second != PTEKind::INVALID) {
+        result = it == kinds.end()
+                     ? static_cast<size_t>((std::numeric_limits<s64>::max)() - address)
+                     : static_cast<size_t>(it->first - address);
+    }
+    if (VideoCommon::Nx2Perf::Verify()) {
+        const size_t expected = GetMemoryLayoutSizeUncached(gpu_addr);
+        static std::atomic<u32> logged{};
+        if (expected != result && logged.fetch_add(1, std::memory_order_relaxed) < 64) {
+            LOG_ERROR(HW_GPU,
+                      "Nx2Perf mapping runs: GetMemoryLayoutSize({:#x}) = {:#x}, kind map {:#x}",
+                      gpu_addr, result, expected);
+        }
+        return expected;
+    }
+    return result;
+}
+
+size_t MemoryManager::GetMemoryLayoutSizeUncached(GPUVAddr gpu_addr) const {
     std::unique_lock<std::mutex> lock(guard);
     return kind_map.GetContinuousSizeFrom(gpu_addr);
 }

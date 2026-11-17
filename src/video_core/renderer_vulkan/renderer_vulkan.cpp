@@ -43,6 +43,7 @@
 #include "video_core/vulkan_common/vulkan_surface.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #ifdef EGLANTINE_STREAMLINE
+#include "video_core/renderer_vulkan/vk_streamline_dlss.h"
 #include "video_core/vulkan_common/streamline.h"
 #endif
 #ifdef __ANDROID__
@@ -246,7 +247,7 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
         Frame* generated = present_manager.GetRenderFrame();
         blit_swapchain.PrepareFrame(device, generated, render_window.GetFramebufferLayout());
         frame_gen.GenerateInto(device, generated, generation);
-        scheduler.Flush(*generated->render_ready);
+        generated->render_tick = scheduler.Flush(*generated->render_ready);
         present_manager.Present(generated);
     }
 #endif
@@ -254,7 +255,7 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
     if (trace) {
         scheduler.MarkFrameEnd(++trace_frame);
     }
-    scheduler.Flush(*frame->render_ready);
+    frame->render_tick = scheduler.Flush(*frame->render_ready);
 
     const auto presenting = trace ? std::chrono::steady_clock::now()
                                   : std::chrono::steady_clock::time_point{};
@@ -412,5 +413,11 @@ void RendererVulkan::RenderAppletCaptureLayer(
     blit_applet.DrawToFrame(device, rasterizer, &applet_frame, capture_layers, VideoCore::Capture::Layout, 1,
                             CaptureFormat);
 }
+
+#ifdef EGLANTINE_STREAMLINE
+VideoCore::DlssStatus RendererVulkan::GetDlssStatus() const {
+    return StreamlineDlssUpscaler::Status();
+}
+#endif
 
 } // namespace Vulkan

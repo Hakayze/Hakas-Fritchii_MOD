@@ -56,6 +56,25 @@ public:
         });
     }
 
+    /// Returns true if every page of a region is CPU-modified and none is GPU-modified or
+    /// Preflushable. False where the tracker has no manager yet (nothing to prove it).
+    [[nodiscard]] bool IsRegionWhollyCpuModified(VAddr query_cpu_addr, u64 query_size) noexcept {
+        if (query_size == 0) {
+            return false;
+        }
+        const size_t first = query_cpu_addr >> HIGHER_PAGE_BITS;
+        const size_t last = (query_cpu_addr + query_size - 1) >> HIGHER_PAGE_BITS;
+        for (size_t page_index = first; page_index <= last; ++page_index) {
+            if (top_tier[page_index] == nullptr) {
+                return false;
+            }
+        }
+        return !IteratePages<false>(query_cpu_addr, query_size,
+                                    [](Manager* manager, u64 offset, size_t size) {
+                                        return !manager->IsRegionWhollyCpuModified(offset, size);
+                                    });
+    }
+
     /// Returns true if a region has been modified from the GPU
     [[nodiscard]] bool IsRegionGpuModified(VAddr query_cpu_addr, u64 query_size) noexcept {
         return IteratePages<false>(query_cpu_addr, query_size, [](Manager* manager, u64 offset, size_t size) {
@@ -144,6 +163,14 @@ public:
         });
     }
 
+    /// Call 'func' for each range marked as Preflushable
+    template <typename Func>
+    void ForEachPreflushableRange(VAddr query_cpu_range, u64 query_size, Func&& func) {
+        IteratePages<false>(query_cpu_range, query_size, [&func](Manager* manager, u64 offset, size_t size) {
+            manager->ForEachModifiedRange(Type::Preflushable, false, manager->cpu_addr + offset, size, func);
+        });
+    }
+
     /// Call 'func' for each GPU modified range and unmark those pages as GPU modified
     template <typename Func>
     void ForEachDownloadRange(VAddr query_cpu_range, u64 query_size, bool clear, Func&& func) {
@@ -157,6 +184,64 @@ public:
         IteratePages<false>(query_cpu_range, query_size, [&func](Manager* manager, u64 offset, size_t size) {
             manager->ForEachModifiedRange(Type::GPU, true, manager->cpu_addr + offset, size, func);
         });
+    }
+
+    /// ForEachUploadRange without the clean words (word_manager.h) at either end of each manager's
+    /// part of the range: they have nothing to find or change. A per-word form of PR #161's skip.
+    /// Returns false when every word was clean (nothing walked at all).
+    template <typename Func>
+    bool ForEachDirtyUploadRange(VAddr query_cpu_range, u64 query_size, Func&& func) {
+        bool walked = false;
+        IteratePages<true>(query_cpu_range, query_size, [&func, &walked](Manager* manager, u64 offset, size_t size) {
+            const auto [begin, end] = manager->DirtyWindow(offset, size);
+            if (begin >= end) {
+                return;
+            }
+            walked = true;
+            manager->ForEachModifiedRange(Type::CPU, true, manager->cpu_addr + begin,
+                                          static_cast<s64>(end - begin), func);
+        });
+        return walked;
+    }
+
+    struct DirtyWalkCheck {
+        u64 cpu_pages = 0;       ///< CPU pages the full walk uploads and the dirty-word walk would not
+        u64 untracked_pages = 0; ///< Untracked pages it re-tracks and the dirty-word walk would not
+        bool walks = false;      ///< The dirty-word walk would walk anything (a manager to create counts)
+    };
+    /// EDEN_NX2_EXP59 & 8: what ForEachDirtyUploadRange would leave out of the range that
+    /// ForEachUploadRange finds or changes. Changes nothing; call it before the full walk.
+    [[nodiscard]] DirtyWalkCheck CheckDirtyWalk(VAddr query_cpu_range, u64 query_size) {
+        DirtyWalkCheck check;
+        if (query_size == 0) {
+            return check;
+        }
+        // A missing manager is created by both walks with every word dirty: no difference.
+        const size_t first = query_cpu_range >> HIGHER_PAGE_BITS;
+        const size_t last =
+            (query_cpu_range + query_size - 1) >> HIGHER_PAGE_BITS;
+        for (size_t page_index = first; page_index <= last; ++page_index) {
+            check.walks |= top_tier[page_index] == nullptr;
+        }
+        IteratePages<false>(query_cpu_range, query_size, [&check](Manager* manager, u64 offset, size_t size) {
+            const auto [begin, end] = manager->DirtyWindow(offset, size);
+            check.walks |= begin < end;
+            const auto [cpu_pages, untracked_pages] = manager->DirtyWalkMisses(offset, size);
+            check.cpu_pages += cpu_pages;
+            check.untracked_pages += untracked_pages;
+        });
+        return check;
+    }
+    /// Verify mode: true when the clean words of the managers over a range match a recount.
+    [[nodiscard]] bool CleanWordsHold(VAddr query_cpu_addr, u64 query_size) const noexcept {
+        const size_t first = query_cpu_addr >> HIGHER_PAGE_BITS;
+        const size_t last = (query_cpu_addr + (std::max<u64>)(query_size, 1) - 1) >> HIGHER_PAGE_BITS;
+        for (size_t page_index = first; page_index <= last; ++page_index) {
+            if (top_tier[page_index] && !top_tier[page_index]->CleanWordsHold()) {
+                return false;
+            }
+        }
+        return true;
     }
 
 private:

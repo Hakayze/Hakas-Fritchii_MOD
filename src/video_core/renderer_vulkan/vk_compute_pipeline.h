@@ -44,7 +44,8 @@ public:
                              Common::ThreadWorker* thread_worker,
                              PipelineStatistics* pipeline_statistics,
                              VideoCore::ShaderNotify* shader_notify, const Shader::Info& info,
-                             vk::ShaderModule spv_module, u64 shader_hash);
+                             vk::ShaderModule spv_module, u64 shader_hash,
+                             std::function<vk::ShaderModule()> make_module = {});
 
     ComputePipeline& operator=(ComputePipeline&&) noexcept = delete;
     ComputePipeline(ComputePipeline&&) noexcept = delete;
@@ -52,11 +53,19 @@ public:
     ComputePipeline& operator=(const ComputePipeline&) = delete;
     ComputePipeline(const ComputePipeline&) = delete;
 
+    using BindCommand = std::function<void(vk::CommandBuffer)>;
+
     [[nodiscard]] bool Configure(Tegra::Engines::KeplerCompute& kepler_compute,
                                  Tegra::MemoryManager& gpu_memory, Scheduler& scheduler,
                                  BufferCache& buffer_cache, TextureCache& texture_cache,
                                  TextureCacheRuntime& texture_runtime,
-                                 std::optional<ByteAddressedShadow>& shadow);
+                                 std::optional<ByteAddressedShadow>& shadow,
+                                 BindCommand* deferred_bind = nullptr);
+
+    static constexpr u64 Ocarina1440pShader = 0x6bd913e1f34e83ebULL;
+    /// The same output pass at 1:1, run at 1920x1080 in handheld with the Max Resolution add-on.
+    static constexpr u64 OcarinaFullSizeShader = 0xc033c3ddc9f0897bULL;
+    [[nodiscard]] bool CanReplaceOcarinaUpscale() const;
 
     bool IsBound() const noexcept {
         return static_cast<bool>(pipeline);
@@ -74,15 +83,38 @@ public:
     struct SampledImage {
         u32 tic;
         VideoCommon::ImageViewId id;
+        VideoCommon::SamplerId sampler;
     };
 
-    /// The textures sampled by the last configured dispatch, kept for EDEN_NX2_FRAME_DUMP_SAMPLED.
+    /// The textures sampled by the last configured dispatch, kept while a sampled frame dump runs.
     [[nodiscard]] std::span<const SampledImage> SampledImages() const noexcept {
         return sampled_images;
     }
 
     /// Advances the frame window of EDEN_NX2_UPSCALER_TRACE
     static void TickUpscalerTrace();
+
+    /// Made from a precompiled pipeline's kept info, its module from the kept SPIR-V
+    /// (EDEN_NX2_PRECOMPILED_FAST): a failed build is replaced by a translated pipeline.
+    void MarkPrecompiled() noexcept {
+        precompiled = true;
+    }
+    [[nodiscard]] bool IsPrecompiled() const noexcept {
+        return precompiled;
+    }
+    /// Whether the build ended without a pipeline (its module could not be made).
+    [[nodiscard]] bool BuildFailed() const noexcept {
+        return is_built.load(std::memory_order::acquire) && !pipeline;
+    }
+    /// Whether the build ended, with a pipeline or not.
+    [[nodiscard]] bool IsBuilt() const noexcept {
+        return is_built.load(std::memory_order::acquire);
+    }
+
+    /// Whether no build of this pipeline is left queued on a worker thread, which holds it
+    [[nodiscard]] bool IsBuildTaskDone() const noexcept {
+        return build_task_done.load(std::memory_order::acquire);
+    }
 
 private:
     /// Builds the pipeline once, on whichever thread gets here first.
@@ -111,7 +143,9 @@ private:
     vk::Pipeline pipeline;
 
     std::function<void()> build_task;
+    bool precompiled{};
     std::atomic_bool build_claimed{false};
+    std::atomic_bool build_task_done{true};
     std::condition_variable build_condvar;
     std::mutex build_mutex;
     std::atomic_bool is_built{false};

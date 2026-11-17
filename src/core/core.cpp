@@ -12,9 +12,11 @@
 #include "audio_core/audio_core.h"
 #include "common/fs/fs.h"
 #include "common/logging.h"
+#include "common/nx2_sampler.h"
 #include "common/adpf.h"
 #include "common/settings.h"
 #include "common/settings_enums.h"
+#include "common/shutdown_progress.h"
 #include "common/string_util.h"
 #include "core/arm/exclusive_monitor.h"
 #include "core/core.h"
@@ -23,13 +25,16 @@
 #include "core/core_timing.h"
 #include "core/cpu_manager.h"
 #include "core/debugger/debugger.h"
+#include "core/debugger/nx2_debug_tools.h"
 #include "core/device_memory.h"
+#include "core/file_sys/card_image.h"
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/fs_filesystem.h"
 #include "core/file_sys/nup_container.h"
 #include "core/file_sys/patch_manager.h"
 #include "core/file_sys/program_metadata.h"
 #include "core/file_sys/registered_cache.h"
+#include "core/file_sys/romfs.h"
 #include "core/file_sys/romfs_factory.h"
 #include "core/file_sys/savedata_factory.h"
 #include "core/file_sys/submission_package.h"
@@ -48,6 +53,7 @@
 #include "core/hle/service/am/process_creation.h"
 #include "core/hle/service/apm/apm_controller.h"
 #include "core/hle/service/filesystem/filesystem.h"
+#include "core/hle/service/filesystem/romfs_controller.h"
 #include "core/hle/service/glue/glue_manager.h"
 #include "core/hle/service/glue/time/static.h"
 #include "core/hle/service/psc/time/static.h"
@@ -60,6 +66,7 @@
 #include "core/hle/service/sm/sm.h"
 #include "core/internal_network/network.h"
 #include "core/loader/loader.h"
+#include "core/loader/nx.h"
 #include "core/memory.h"
 #include "core/memory/cheat_engine.h"
 #include "core/perf_stats.h"
@@ -69,6 +76,7 @@
 #include "hid_core/hid_core.h"
 #include "network/network.h"
 #include "video_core/host1x/host1x.h"
+#include "video_core/nx2_precompile.h"
 #include "video_core/renderer_base.h"
 #include "video_core/video_core.h"
 
@@ -125,13 +133,13 @@ bool IsSwitch2Program(const FileSys::VirtualFile& file, u64 program_id, std::siz
         if (nup.GetStatus() != Loader::ResultStatus::Success) {
             return false;
         }
+        const auto base = nup.FindBasePackage();
+        const auto update = nup.FindBestUpdatePackage();
         std::optional<std::size_t> program;
-        if (const auto base = nup.FindBasePackage();
-            base && nup.GetExeFSDir(*base) != nullptr) {
-            program = base;
-        } else if (const auto update = nup.FindBestUpdatePackage();
-                   update && nup.GetExeFSDir(*update) != nullptr) {
+        if (update && nup.GetExeFSDir(*update) != nullptr) {
             program = update;
+        } else if (base && nup.GetExeFSDir(*base) != nullptr) {
+            program = base;
         }
         const auto exefs = program ? nup.GetExeFSDir(*program) : nullptr;
         const auto npdm = exefs != nullptr ? exefs->GetFile("main.npdm") : nullptr;
@@ -139,6 +147,24 @@ bool IsSwitch2Program(const FileSys::VirtualFile& file, u64 program_id, std::siz
                metadata.IsSwitch2();
     }
     const auto type = file != nullptr ? Loader::IdentifyFile(file) : Loader::FileType::Unknown;
+    if (type == Loader::FileType::NX) {
+        return Loader::AppLoader_NX::ReadPlatform(file, program_id) == 2;
+    }
+    if (type == Loader::FileType::XCI || type == Loader::FileType::XCZ) {
+        const FileSys::XCI xci{file, program_id, program_index};
+        if (xci.GetStatus() != Loader::ResultStatus::Success) {
+            return false;
+        }
+        const auto partition = xci.GetSecurePartitionNSP();
+        const auto program = partition != nullptr
+                                 ? partition->GetNCA(xci.GetProgramTitleID(),
+                                                     FileSys::ContentRecordType::Program)
+                                 : nullptr;
+        const auto exefs = program != nullptr ? program->GetExeFS() : nullptr;
+        const auto npdm = exefs != nullptr ? exefs->GetFile("main.npdm") : nullptr;
+        return npdm != nullptr && metadata.Load(npdm) == Loader::ResultStatus::Success &&
+               metadata.IsSwitch2();
+    }
     if (type == Loader::FileType::NSP || type == Loader::FileType::NSZ) {
         const FileSys::NSP nsp{file, program_id, program_index};
         if (nsp.GetStatus() != Loader::ResultStatus::Success) {
@@ -219,14 +245,22 @@ struct System::Impl {
             return;
         }
 
+        // The settings and time services start on the emulated cores, which only run once the
+        // game has finished loading (shaders included). Waiting for them here froze the UI
+        // thread for the whole loading screen when settings were applied during it. If they
+        // are not up yet there is nothing to refresh: they read the current settings when
+        // they start.
+        auto& service_manager = system.ServiceManager();
         auto settings_service =
-            system.ServiceManager().GetService<Service::Set::ISystemSettingsServer>("set:sys",
-                                                                                    true);
+            service_manager.GetService<Service::Set::ISystemSettingsServer>("set:sys");
         auto static_service_a =
-            system.ServiceManager().GetService<Service::Glue::Time::StaticService>("time:a", true);
-
+            service_manager.GetService<Service::Glue::Time::StaticService>("time:a");
         auto static_service_s =
-            system.ServiceManager().GetService<Service::PSC::Time::StaticService>("time:s", true);
+            service_manager.GetService<Service::PSC::Time::StaticService>("time:s");
+        if (!settings_service || !static_service_a || !static_service_s) {
+            LOG_INFO(Core, "Time services not started yet, they will use the current settings");
+            return;
+        }
 
         std::shared_ptr<Service::PSC::Time::SystemClock> user_clock;
         static_service_a->GetStandardUserSystemClock(&user_clock);
@@ -438,6 +472,27 @@ struct System::Impl {
             cheat_engine->Initialize();
         }
 
+        // EDEN_NX2_PRECOMPILE: the game's files, for assembling a precompile recipe (#895) on the
+        // pipeline cache's preparation thread. The RomFS as the process reads it, update included.
+        if (VideoCommon::Nx2Precompile::Mode() != 0) {
+            const u64 process_id = process->GetHandle()->GetProcessId();
+            VideoCommon::Nx2Precompile::SetGameFiles(
+                params.program_id, [this, process_id]() -> std::vector<FileSys::VirtualDir> {
+                    Service::FileSystem::ProgramId program{};
+                    std::shared_ptr<Service::FileSystem::SaveDataController> save;
+                    std::shared_ptr<Service::FileSystem::RomFsController> romfs;
+                    if (fs_controller.OpenProcess(&program, &save, &romfs, process_id).IsError() ||
+                        !romfs) {
+                        return {};
+                    }
+                    auto dir = FileSys::ExtractRomFS(romfs->OpenRomFSCurrentProcess());
+                    if (!dir) {
+                        return {};
+                    }
+                    return {std::move(dir)};
+                });
+        }
+
         // Register with applet manager
         // All threads are started, begin main process execution, now that we're in the clear
         applet_manager.CreateAndInsertByFrontendAppletParameters(std::move(process), params);
@@ -472,10 +527,15 @@ struct System::Impl {
             game_info.version = title_version;
             room_member->SendGameInfo(game_info);
         }
+        debug_service = Nx2Debug::MaybeStartService(system, name, params.program_id);
+        Nx2Sampler::StartFromEnvironment();
         return SystemResultStatus::Success;
     }
 
     void ShutdownMainProcess() {
+        debug_service.reset();
+        // Waits for a call in progress (it opens the RomFS, a quick step).
+        VideoCommon::Nx2Precompile::SetGameFiles(0, {});
         SetShuttingDown(true);
         Common::ADPF::Shutdown();
 
@@ -493,15 +553,22 @@ struct System::Impl {
         Network::CancelPendingSocketOperations();
         kernel.SuspendEmulation(true);
         kernel.CloseServices();
+        // Each step done tells the frontend the teardown still moves (see
+        // Common::ShutdownProgress); the GPU's (pipeline caches) reports its own steps.
+        Common::NoteShutdownProgress();
         kernel.ShutdownCores();
+        Common::NoteShutdownProgress();
         services.reset();
         service_manager.reset();
         fs_controller.Reset();
         cheat_engine.reset();
         core_timing.ClearPendingEvents();
         app_loader.reset();
+        Common::NoteShutdownProgress();
         audio_core.reset();
+        Common::NoteShutdownProgress();
         gpu_core.reset();
+        Common::NoteShutdownProgress();
         host1x_core.reset();
         perf_stats.reset();
         cpu_manager.Shutdown();
@@ -603,6 +670,8 @@ struct System::Impl {
     bool exit_locked : 1 = false;
     bool exit_requested : 1 = false;
     bool nvdec_active : 1 = false;
+    /// EDEN_NX2_DEBUG_SERVER; the last member, so it stops before anything it reads goes away.
+    std::unique_ptr<Nx2Debug::Service> debug_service;
 
     void EnsureGeneralChannelInitialized(System& system) {
         if (!general_channel_event) {
