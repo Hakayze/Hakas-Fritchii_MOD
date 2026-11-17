@@ -1,3 +1,11 @@
+# Hakas-Fritchii_MOD
+
+Personalização do **Fritchii v5.8.4** fornecido pelo usuário, com sua interface nativa preservada. A fonte correta é o tag `fritchii-v5.8.4`, commit `4f5c53149b7e17d1c24445f68d79a83a3b2a17f9`, e não o `nx2` upstream usado inicialmente.
+
+Veja [a identificação da base](docs/hakas/BASE_CORRECTED.md), [a documentação Hakas](docs/hakas/README.md) e [o cliente de revisão Gemini/DeepSeek](tools/ai_review/README.md). O protótipo 3D anterior está preservado no PR #2 para adaptação; build e testes da base correta têm validação própria.
+
+---
+
 <!--
 # SPDX-FileCopyrightText: Copyright 2025 Eden Emulator Project
 # SPDX-License-Identifier: GPL-3.0-or-later

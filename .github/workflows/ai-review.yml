@@ -1,0 +1,165 @@
+name: Hakas Gemini and DeepSeek review
+
+on:
+  pull_request:
+    branches: [nx2]
+    paths:
+      - "CMakeLists.txt"
+      - "CMakeModules/**"
+      - "src/yuzu/**"
+      - "src/qt_common/**"
+      - "tools/ai_review/**"
+      - ".github/workflows/ai-review.yml"
+      - ".github/workflows/windows-baseline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Independent Gemini and DeepSeek reviews
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.user.login == 'Hakayze') ||
+      (github.event_name == 'workflow_dispatch' && github.actor == 'Hakayze')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      BASE_SHA: 4f5c53149b7e17d1c24445f68d79a83a3b2a17f9
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+    steps:
+      - name: Check out the selected head commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set temporary review paths
+        shell: bash
+        run: |
+          echo "REVIEW_DIFF=$RUNNER_TEMP/hakas-selected-review.diff" >> "$GITHUB_ENV"
+          echo "REVIEW_OUTPUT=$RUNNER_TEMP/ai-review-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+
+      - name: Test the review client without provider credentials
+        shell: bash
+        run: python3 -m unittest discover -s tools/ai_review -p 'test_*.py' -v
+
+      - name: Prepare a bounded source-only diff
+        id: input
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          DIFF_BASE="$BASE_SHA"
+          if [[ -n "$PR_BASE_SHA" ]]; then
+            if [[ ! "$PR_BASE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::Invalid pull request base SHA."
+              exit 1
+            fi
+            git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+            if git cat-file -e "$PR_BASE_SHA:src/yuzu/fritchii/home.cpp" 2>/dev/null; then
+              DIFF_BASE="$PR_BASE_SHA"
+            fi
+          fi
+          export DIFF_BASE
+          git -c core.quotePath=false diff --no-ext-diff --no-textconv --unified=3 \
+            "$DIFF_BASE" HEAD -- \
+            CMakeLists.txt CMakeModules/ src/yuzu/ src/qt_common/ tools/ai_review/ \
+            .github/workflows/windows-baseline.yml .github/workflows/ai-review.yml \
+            > "$REVIEW_DIFF"
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          raw = Path(os.environ["REVIEW_DIFF"]).read_bytes()
+          eligible = bool(raw.strip()) and len(raw) <= 131072
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"eligible={str(eligible).lower()}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## Selected review input\n\n")
+              summary.write(f"Selected diff base: `{os.environ['DIFF_BASE']}`\n\n")
+              summary.write(f"Input: {len(raw)} bytes; SHA-256 `{hashlib.sha256(raw).hexdigest()}`.\n\n")
+              if not eligible:
+                  summary.write("Provider calls skipped: the selected diff is empty or exceeds 131072 bytes. Select a smaller change before reviewing.\n")
+          if not eligible:
+              print("::warning::Provider calls skipped: empty or oversized selected diff.")
+          PY
+
+      - name: Check provider configuration without calling APIs
+        id: configuration
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL }}
+        run: |
+          set -euo pipefail
+          if python3 tools/ai_review/review.py --check; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Gemini/DeepSeek were not called: configure both API key secrets and both model variables."
+            cat >> "$GITHUB_STEP_SUMMARY" <<'NOTE'
+          ## Provider configuration required
+
+          No Gemini or DeepSeek API request was made. Add repository Actions secrets `GEMINI_API_KEY` and `DEEPSEEK_API_KEY`, plus Actions variables `GEMINI_MODEL` and `DEEPSEEK_MODEL`. Web chat logins do not configure this API client.
+          NOTE
+          fi
+
+      - name: Request independent provider reviews
+        id: review
+        if: steps.configuration.outputs.ready == 'true' && steps.input.outputs.eligible == 'true'
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL }}
+        run: |
+          python3 tools/ai_review/review.py \
+            --input "$REVIEW_DIFF" \
+            --output-dir "$REVIEW_OUTPUT" \
+            --provider both \
+            --max-input-bytes 131072 \
+            --max-output-tokens 2048 \
+            --max-output-chars 16000 \
+            --timeout 90
+
+      - name: Preserve provider reports, including partial failures
+        if: always() && steps.review.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REVIEW_OUTPUT }}/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Summarize provider execution
+        if: always()
+        shell: bash
+        env:
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          python3 - <<'PY'
+          import os
+
+          outcome = os.environ.get("REVIEW_OUTCOME", "")
+          if outcome == "success":
+              message = "Provider calls completed. Read both Markdown reports and summary.json; this is advisory review, not automatic approval or a build test."
+          elif outcome == "failure":
+              message = "Provider review failed or was incomplete. Available reports are preserved; no retry, patch execution, comment or merge was performed."
+          else:
+              message = "Provider calls did not run. Check configuration, input eligibility and preceding steps. Passing client tests is not an API review."
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("\n## API review result\n\n" + message + "\n")
+          PY
