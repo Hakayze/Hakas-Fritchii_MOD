@@ -182,6 +182,20 @@ class ReviewTests(unittest.TestCase):
         summary = json.loads((self.root / "reports/summary.json").read_text())
         self.assertEqual([r["provider"] for r in summary["results"]], ["gemini"])
 
+    def test_unavailable_is_reported_without_retry_or_authentication_claim(self):
+        error = urllib.error.HTTPError("https://generativelanguage.googleapis.com/", 503,
+                                       "UNAVAILABLE", {}, None)
+        with patch.object(review, "post_once", side_effect=error) as post:
+            self.assertEqual(self.run_cli(["--provider", "gemini"]), 1)
+        self.assertEqual(post.call_count, 1)
+        summary = json.loads((self.root / "reports/summary.json").read_text())
+        result = summary["results"][0]
+        self.assertEqual(result["http_status"], 503)
+        self.assertEqual(result["status"], "error")
+        self.assertIn("temporariamente indisponível", result["error"])
+        self.assertNotIn("credencial", result["error"])
+        self.assertFalse((self.root / "reports/deepseek.md").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

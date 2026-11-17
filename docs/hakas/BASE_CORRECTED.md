@@ -30,10 +30,19 @@ O protótipo Qt Quick 3D do PR #2 está preservado na branch anterior. Seus test
 
 ## Revisões externas
 
-A ferramenta e o workflow de revisão chamam Gemini e DeepSeek somente quando chaves e modelos estão configurados. Credenciais não fazem parte do repositório nem do executável. Sem configuração, o workflow informa que as revisões não foram executadas. Os testes do cliente usam HTTP simulado e não são pareceres dos provedores.
+O workflow automático chama somente Gemini quando a chave e o modelo estão configurados. O cliente também oferece DeepSeek como opção manual explícita. Credenciais não fazem parte do repositório nem do executável. Sem configuração, o workflow informa que as revisões não foram executadas. Os testes do cliente usam HTTP simulado e não são pareceres dos provedores.
 
 ## Ajuste de compatibilidade MSVC e modo gratuito
 
 A primeira execução Windows passou pela configuração e pela verificação de identidade Fritchii, mas falhou em C4459 em `src/common/frizti_settings.cpp`: quatro parâmetros/variáveis locais `values` escondiam `Settings::values`. A correção renomeia somente esses identificadores e suas referências, sem mudar tipos, configurações, defaults ou schema. O novo build deve verificar a correção; o restante da fonte da release é preservado.
 
 Por solicitação de orçamento zero, o workflow automático passou a chamar somente Gemini, com chave de projeto Free Tier sem faturamento e modelo elegível. DeepSeek oficial não é solicitado por esse workflow. O cliente continua oferecendo DeepSeek como opção explícita, sujeita às tarifas do provedor. A cota esgotada termina a execução, sem retry ou troca para API paga. Não é possível detectar o estado de faturamento do projeto Google a partir da chave; a configuração Free Tier precisa ser feita na conta do usuário.
+
+## Validação após configuração e compilador Windows
+
+Em 17/11/2026, o workflow reconheceu `GEMINI_API_KEY` e `GEMINI_MODEL=gemini-3.8-flash`. Duas chamadas reais ao Gemini terminaram em HTTP 503, sem parecer. A presença das variáveis e esses erros não comprovam autenticação nem uma revisão concluída. O cliente distingue indisponibilidade do serviço de erros de credenciais e cota; não há fallback pago ou retry automático.
+
+Após a correção de identificadores locais, o build MSVC avançou e parou em C4457/C4458 em `kepler_compute.cpp` e `maxwell_3d.cpp`. O próximo ensaio seleciona clang-cl LLVM 22.1.8, mantendo VS 2022 x64, SDK Windows e Qt 6.8.3 MSVC. O instalador oficial tem versão e SHA-256 fixados, e o CI verifica o compilador e a ABI antes do build. Essa escolha segue o ambiente local documentado no `AGENTS.md` upstream, não reproduz comprovadamente o compilador do EXE oficial: o workflow de release padrão usa MSVC e a variante PGO usa MinGW clang.
+
+Nenhum arquivo do core foi modificado para contornar esses avisos. `ENABLE_WERROR` e a identidade Fritchii permanecem ativos. A instalação e o build com LLVM 22 precisam passar no runner Windows; validação estática do YAML não comprova isso.
+

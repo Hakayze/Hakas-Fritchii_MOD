@@ -36,6 +36,8 @@ Por padrão, a entrada é limitada a 131.072 bytes, a resposta HTTP a 1 MiB e ca
 
 Entrada que contenha qualquer chave ativa é recusada. Respostas e erros são sanitizados. Parecer encerrado por limite de tokens, outro motivo diferente de conclusão normal, ou corte local é marcado `incomplete`; os arquivos são preservados e o processo retorna código 1. Uma resposta concluída tem estado `ok`, que indica conclusão do transporte/texto, não aprovação técnica do código. Se um provedor falhar, o parecer do outro continua disponível.
 
+Um erro HTTP 503 é registrado como indisponibilidade temporária do serviço. Não comprova autenticação nem conclusão da revisão. O cliente mantém a tentativa única, preserva o diagnóstico e não troca para outro provedor. HTTP 429 é registrado separadamente como limite ou cota.
+
 Não houve chamada real aos provedores nos testes da ferramenta. Os testes usam respostas HTTP simuladas e não comprovam autenticação, saldo, disponibilidade do modelo ou qualidade de revisão em produção.
 
 ## Referências oficiais

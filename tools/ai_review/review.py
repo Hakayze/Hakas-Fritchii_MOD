@@ -170,8 +170,17 @@ def review_one(config, text, options, keys):
                       text=answer[:options.max_output_chars], finish_reason=finish,
                       locally_truncated=clipped, usage=usage)
     except urllib.error.HTTPError as error:
+        detail = {
+            400: "requisição inválida; confira parâmetros e suporte do modelo",
+            401: "autenticação recusada; confira a chave",
+            403: "acesso recusado; confira permissões e disponibilidade no projeto",
+            404: "recurso não encontrado; confira o ID do modelo e endpoint",
+            429: "limite ou cota atingido; confira o projeto antes de tentar novamente",
+            500: "erro interno do provedor",
+            503: "serviço temporariamente indisponível; aguarde antes de tentar novamente",
+        }.get(error.code, "falha HTTP do provedor")
         result.update(status="error", http_status=error.code,
-                      error=f"HTTP {error.code}; confira credencial, modelo ou cota. Sem retry.")
+                      error=f"HTTP {error.code}; {detail}. Sem retry.")
         error.close()
     except Exception as error:
         result.update(status="error", error=redact(error, keys)[:1500])
