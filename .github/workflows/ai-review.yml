@@ -33,6 +33,8 @@ jobs:
     env:
       BASE_SHA: 4f5c53149b7e17d1c24445f68d79a83a3b2a17f9
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      # Migrate this known overloaded model; preserve any other user-selected model.
+      GEMINI_EFFECTIVE_MODEL: ${{ vars.GEMINI_MODEL == 'gemini-3.8-flash' && 'gemini-4-hydrogen' || vars.GEMINI_MODEL }}
 
     steps:
       - name: Check out the selected head commit
@@ -100,7 +102,7 @@ jobs:
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_MODEL: ${{ env.GEMINI_EFFECTIVE_MODEL }}
         run: |
           set -euo pipefail
           if python3 tools/ai_review/review.py --check --provider gemini; then
@@ -121,10 +123,10 @@ jobs:
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-        # Explicit free-tier alternative for sustained capacity errors on the configured model.
+          GEMINI_MODEL: ${{ env.GEMINI_EFFECTIVE_MODEL }}
+        # Use Hydrogen directly after confirmed 3.8 capacity failures; do not loop on the old model.
         # https://aistudio.google.com/docs/pricing#gemini-4-hydrogen (verified 2026-11-17)
-        run: python3 tools/ai_review/diagnose.py --output-dir "$DIAGNOSTIC_OUTPUT" --fallback-model gemini-4-hydrogen
+        run: python3 tools/ai_review/diagnose.py --output-dir "$DIAGNOSTIC_OUTPUT" --timeout 120
 
       - name: Request Gemini review
         id: review
@@ -142,9 +144,9 @@ jobs:
             --provider gemini \
             --gemini-api "$GEMINI_API" \
             --max-input-bytes 131072 \
-            --max-output-tokens 2048 \
-            --max-output-chars 16000 \
-            --timeout 90
+            --max-output-tokens 8192 \
+            --max-output-chars 24000 \
+            --timeout 180
 
       - name: Preserve provider reports, including partial failures
         if: always() && steps.diagnostic.outcome != 'skipped'

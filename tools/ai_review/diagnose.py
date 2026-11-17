@@ -64,15 +64,15 @@ def diagnose(config, keys, timeout=45, apis=("interactions", "generate-content")
     return result
 
 
-def with_fallback(config, keys, fallback_model=None):
-    result = diagnose(config, keys)
+def with_fallback(config, keys, fallback_model=None, timeout=45):
+    result = diagnose(config, keys, timeout=timeout)
     probes = result["checks"][1:]
     # Explicit opt-in, one currently verified free-tier model, only capacity errors.
     # Never use a different model on authentication, permissions or quota failures.
     if (fallback_model == "gemini-4-hydrogen" and config["model"] != fallback_model
             and len(probes) == 2 and all(c.get("http_status") == 503 for c in probes)):
         alternative = dict(config, model=fallback_model)
-        result["alternative"] = diagnose(alternative, keys, apis=("interactions",))
+        result["alternative"] = diagnose(alternative, keys, timeout=timeout, apis=("interactions",))
         if result["alternative"]["status"] == "ok":
             result.update(status="ok", selected_api=result["alternative"]["selected_api"],
                           selected_model=fallback_model)
@@ -85,11 +85,12 @@ def main(argv=None, environ=None):
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--output-dir", type=Path, required=True)
     cli.add_argument("--fallback-model", choices=("gemini-4-hydrogen",))
+    cli.add_argument("--timeout", type=review.bounded(1, 180), default=45)
     args = cli.parse_args(argv)
     try:
         config = review.configs(env, ("gemini",))[0]
         args.output_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
-        result = with_fallback(config, keys, args.fallback_model)
+        result = with_fallback(config, keys, args.fallback_model, args.timeout)
         encoded = review.redact(json.dumps(result, ensure_ascii=False, indent=2), keys)
         (args.output_dir / "diagnostic.json").write_text(encoded + "\n", encoding="utf-8")
         print(encoded)
