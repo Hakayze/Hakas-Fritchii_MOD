@@ -46,6 +46,8 @@ O workflow preserva `diagnostic.json` mesmo quando as chamadas falham. O diagnó
 
 Os POSTs de diagnóstico também podem consumir cota. Continuam usando o mesmo projeto Free Tier sem faturamento; o programa não consegue verificar nem alterar o estado de faturamento da conta Google.
 
+Para resolver indisponibilidade persistente do 3.8 Flash, o workflow autoriza explicitamente `--fallback-model gemini-4-hydrogen`. O diagnóstico só usa essa alternativa se as duas APIs do modelo configurado responderem 503: consulta seus metadados e tenta uma única geração mínima via Interactions. A revisão usa o modelo/API que passou e registra ambos; a variável original não é alterada. Não troca de modelo em falhas 401/403/429, não repete POSTs, não muda de projeto e não ativa faturamento. Com essa opção, o máximo é dois GETs e três gerações mínimas por execução. O Hydrogen tem entrada e saída gratuitas no Free Tier na [tabela oficial](https://aistudio.google.com/docs/pricing#gemini-4-hydrogen), conferida em 17/11/2026; a elegibilidade deve ser revista se o provedor mudar essa política.
+
 Não houve chamada real aos provedores nos testes da ferramenta. Os testes usam respostas HTTP simuladas e não comprovam autenticação, saldo, disponibilidade do modelo ou qualidade de revisão em produção.
 
 ## Referências oficiais

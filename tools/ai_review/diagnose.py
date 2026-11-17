@@ -13,7 +13,7 @@ import urllib.request
 import review
 
 
-def diagnose(config, keys, timeout=45):
+def diagnose(config, keys, timeout=45, apis=("interactions", "generate-content")):
     result = {"model": config["model"], "status": "error", "checks": []}
     metadata = {"stage": "model_metadata"}
     result["checks"].append(metadata)
@@ -34,7 +34,7 @@ def diagnose(config, keys, timeout=45):
 
     # One tiny request per API at most. The model and key never change.
     # Stop immediately on permission/quota errors; no paid fallback or retries.
-    for api in ("interactions", "generate-content"):
+    for api in apis:
         check = {"stage": "minimal_generation", "api": api}
         result["checks"].append(check)
         started = time.monotonic()
@@ -42,7 +42,7 @@ def diagnose(config, keys, timeout=45):
             request = review.make_request(config, "OK", 1024, api,
                                           "Teste de conexão. Responda apenas OK.")
             body = json.loads(request.data)
-            if config["model"].startswith("gemini-3.8-"):
+            if config["model"].startswith("gemini-3.8-") or config["model"] == "gemini-4-hydrogen":
                 if api == "interactions":
                     body["generation_config"]["thinking_level"] = "low"
                 else:
@@ -53,7 +53,7 @@ def diagnose(config, keys, timeout=45):
             check.update(status="ok" if complete else "incomplete", http_status=200,
                          finish_reason=finish, text=review.redact(answer, keys)[:100], usage=usage)
             if complete:
-                result.update(status="ok", selected_api=api)
+                result.update(status="ok", selected_api=api, selected_model=config["model"])
         except urllib.error.HTTPError as error:
             check.update(review.http_failure(error, keys))
         except Exception as error:
@@ -64,22 +64,39 @@ def diagnose(config, keys, timeout=45):
     return result
 
 
+def with_fallback(config, keys, fallback_model=None):
+    result = diagnose(config, keys)
+    probes = result["checks"][1:]
+    # Explicit opt-in, one currently verified free-tier model, only capacity errors.
+    # Never use a different model on authentication, permissions or quota failures.
+    if (fallback_model == "gemini-4-hydrogen" and config["model"] != fallback_model
+            and len(probes) == 2 and all(c.get("http_status") == 503 for c in probes)):
+        alternative = dict(config, model=fallback_model)
+        result["alternative"] = diagnose(alternative, keys, apis=("interactions",))
+        if result["alternative"]["status"] == "ok":
+            result.update(status="ok", selected_api=result["alternative"]["selected_api"],
+                          selected_model=fallback_model)
+    return result
+
+
 def main(argv=None, environ=None):
     env = os.environ if environ is None else environ
     keys = [env.get("GEMINI_API_KEY", "").strip()]
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--output-dir", type=Path, required=True)
+    cli.add_argument("--fallback-model", choices=("gemini-4-hydrogen",))
     args = cli.parse_args(argv)
     try:
         config = review.configs(env, ("gemini",))[0]
         args.output_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
-        result = diagnose(config, keys)
+        result = with_fallback(config, keys, args.fallback_model)
         encoded = review.redact(json.dumps(result, ensure_ascii=False, indent=2), keys)
         (args.output_dir / "diagnostic.json").write_text(encoded + "\n", encoding="utf-8")
         print(encoded)
         if result["status"] == "ok" and env.get("GITHUB_OUTPUT"):
             with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                 output.write("api=" + result["selected_api"] + "\n")
+                output.write("model=" + result["selected_model"] + "\n")
         return 0 if result["status"] == "ok" else 1
     except (review.ReviewError, OSError) as error:
         print(review.redact(error, keys), file=sys.stderr)

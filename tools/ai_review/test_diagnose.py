@@ -50,3 +50,19 @@ class DiagnosticTests(unittest.TestCase):
                 result = diagnose.diagnose(CONFIG, [CONFIG["key"]])
             self.assertEqual(call.call_count, 2)
             self.assertEqual(result["status"], "error")
+
+    def test_explicit_hydrogen_fallback_only_after_two_capacity_errors(self):
+        with patch.object(diagnose.review, "post_once", side_effect=[METADATA, http(503), http(503), METADATA, OK]) as call:
+            result = diagnose.with_fallback(CONFIG, [CONFIG["key"]], "gemini-4-hydrogen")
+        self.assertEqual(call.call_count, 5)
+        self.assertEqual(result["selected_model"], "gemini-4-hydrogen")
+        self.assertEqual(result["selected_api"], "interactions")
+        self.assertEqual(json.loads(call.call_args.args[0].data)["model"], "gemini-4-hydrogen")
+
+    def test_no_implicit_model_switch_or_quota_bypass(self):
+        for fallback, code in ((None, 503), ("gemini-4-hydrogen", 429), ("gemini-4-hydrogen", 403)):
+            with self.subTest(fallback=fallback, code=code), patch.object(diagnose.review, "post_once", side_effect=[METADATA, http(code), http(code)]) as call:
+                result = diagnose.with_fallback(CONFIG, [CONFIG["key"]], fallback)
+            self.assertNotIn("alternative", result)
+            self.assertEqual(result["status"], "error")
+            self.assertLessEqual(call.call_count, 3)

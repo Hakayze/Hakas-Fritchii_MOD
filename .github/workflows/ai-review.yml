@@ -122,7 +122,9 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-        run: python3 tools/ai_review/diagnose.py --output-dir "$DIAGNOSTIC_OUTPUT"
+        # Explicit free-tier alternative for sustained capacity errors on the configured model.
+        # https://aistudio.google.com/docs/pricing#gemini-4-hydrogen (verified 2026-11-17)
+        run: python3 tools/ai_review/diagnose.py --output-dir "$DIAGNOSTIC_OUTPUT" --fallback-model gemini-4-hydrogen
 
       - name: Request Gemini review
         id: review
@@ -130,7 +132,7 @@ jobs:
         shell: bash
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_MODEL: ${{ steps.diagnostic.outputs.model }}
           GEMINI_API: ${{ steps.diagnostic.outputs.api }}
         run: |
           case "$GEMINI_API" in interactions|generate-content) ;; *) exit 1 ;; esac
