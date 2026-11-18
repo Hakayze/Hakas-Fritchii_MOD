@@ -19,6 +19,12 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QStandardItemModel>
+#ifdef FRITCHII_CINEMATIC
+#include <QMessageBox>
+#include <QQuickItem>
+#include <QQuickView>
+#include "yuzu/cinematic/cinematic_game_model.h"
+#endif
 #include <QTimer>
 #include <QToolButton>
 
@@ -165,6 +171,10 @@ Home::Home(QMainWindow* window_, QBoxLayout* central, QWidget* game_list_, QWidg
     page = MakePage();
     central->insertWidget(0, rail);
     central->addWidget(page, 1);
+#ifdef FRITCHII_CINEMATIC
+    connect(cinematic_button, &QPushButton::clicked, this,
+            [this, central] { ShowCinematic(central); });
+#endif
 
     game_list->installEventFilter(this);
     placeholder->installEventFilter(this);
@@ -288,6 +298,11 @@ QWidget* Home::MakePage() {
     connect(saves, &QPushButton::clicked, this, [this] {
         ShowSavesWindow(window, hooks.emulation_running);
     });
+#ifdef FRITCHII_CINEMATIC
+    cinematic_button = new QPushButton(tr("Cinematic library"), page);
+    cinematic_button->setObjectName(QStringLiteral("FritchiiLink"));
+    links->addWidget(cinematic_button);
+#endif
     links->addWidget(saves);
     links->addWidget(link(QStringLiteral("community"), tr("Discord"), &OpenDiscord));
     links->addWidget(link(QStringLiteral("heart"), tr("Donate"), &OpenDonate));
@@ -426,12 +441,65 @@ void Home::Refresh() {
     connect(add, &QToolButton::clicked, this, [this] { hooks.add_folder(); });
 }
 
+#ifdef FRITCHII_CINEMATIC
+void Home::ShowCinematic(QBoxLayout* central) {
+    if (hooks.emulation_running()) {
+        return;
+    }
+    if (!cinematic) {
+        auto* view = new QQuickView;
+        const CinematicGameModel::SourceRoles roles{
+            GameListItem::TypeRole, GameListItemPath::TitleRole, GameListItemPath::FullPathRole,
+            GameListItemPath::ProgramIdRole, static_cast<int>(GameListItemType::Game),
+            static_cast<int>(GameListItemType::Favorites)};
+        auto* model = new CinematicGameModel(roles, hooks.model, view);
+        view->setResizeMode(QQuickView::SizeRootObjectToView);
+        view->setInitialProperties({{QStringLiteral("adapter"), QVariant::fromValue(model)}});
+        view->setSource(QUrl(QStringLiteral("qrc:/cinematic/HostedLibrary.qml")));
+        if (!view->rootObject()) {
+            view->deleteLater();
+            QMessageBox::warning(window, tr("Cinematic library"),
+                                 tr("The 3D library could not be loaded."));
+            cinematic_button->setFocus();
+            return;
+        }
+        connect(view->rootObject(), SIGNAL(returnToClassic()), this, SLOT(ShowHome()));
+        connect(model, &CinematicGameModel::launchGameRequested, this,
+                [this](const QString& path, qulonglong id) {
+                    if (cinematic && cinematic->isVisible() && !hooks.emulation_running() &&
+                        !QApplication::activeModalWidget() && !QApplication::activePopupWidget()) {
+                        hooks.play(path, id);
+                    }
+                });
+        cinematic = QWidget::createWindowContainer(view, window);
+        cinematic->setFocusPolicy(Qt::StrongFocus);
+        central->addWidget(cinematic, 1);
+    }
+    page->hide();
+    game_list->hide();
+    placeholder->hide();
+    cinematic->show();
+    cinematic->setFocus(Qt::OtherFocusReason);
+}
+#endif
+
 void Home::ShowHome() {
+#ifdef FRITCHII_CINEMATIC
+    const bool restore_focus = cinematic && cinematic->isVisible();
+    if (cinematic) {
+        cinematic->hide();
+    }
+#endif
     list_mode = false;
     game_list->hide();
     placeholder->hide();
     rail->show();
     page->show();
+#ifdef FRITCHII_CINEMATIC
+    if (restore_focus) {
+        cinematic_button->setFocus();
+    }
+#endif
     library_button->setChecked(true);
     Refresh();
 }
@@ -453,6 +521,13 @@ void Home::Restore() {
     if (hooks.single_window() && hooks.emulation_running()) {
         return;
     }
+#ifdef FRITCHII_CINEMATIC
+    if (cinematic && cinematic->isVisible()) {
+        game_list->hide();
+        placeholder->hide();
+        return;
+    }
+#endif
     if (list_mode) {
         rail->show();
         page->hide();
@@ -462,6 +537,14 @@ void Home::Restore() {
 }
 
 void Home::OnEmulationStarting() {
+#ifdef FRITCHII_CINEMATIC
+    if (cinematic && cinematic->isVisible()) {
+        cinematic->hide();
+        if (!hooks.single_window()) {
+            ShowHome();
+        }
+    }
+#endif
     if (!hooks.single_window()) {
         return;
     }

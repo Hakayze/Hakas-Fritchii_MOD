@@ -1,6 +1,6 @@
 # Componentes da estante produzidos com Gemini
 
-Esta entrega prepara a camada QML do modo Cinematográfico para a base **Fritchii v5.8.4**, commit `7d98cb2303ff185b3a6e26ef3d10e80a13e1e7f6`. O adaptador C++ está implementado e testado isoladamente. A ligação com a Home e o empacotamento Windows ainda estão pendentes. Os arquivos não estão ligados ao target do emulador nesta etapa.
+Esta entrega prepara a camada QML do modo Cinematográfico para a base **Fritchii v5.8.4**, commit `7d98cb2303ff185b3a6e26ef3d10e80a13e1e7f6`. O adaptador C++ está implementado e testado isoladamente. O build com `-DFRITCHII_CINEMATIC=ON` inclui a estante no target do emulador e habilita o botão **Cinematic library** na Home. A validação visual e do pacote em Windows continua pendente.
 
 Por instrução do usuário em 18/11/2026, acompanhar releases upstream, incluindo a [v6.1](https://github.com/Frizti/Fritchii/releases/tag/fritchii-v6.1), sem atualizar esta base, sincronizar o fork ou trocar seus executáveis automaticamente.
 
@@ -74,3 +74,9 @@ ctest --test-dir build/model_probe -C Release --output-on-failure
 ```
 
 Os testes C++ são independentes do teste QML e não comprovam a integração entre ambos, a hospedagem Windows ou a renderização 3D. Nenhum executável novo do emulador foi publicado nesta etapa.
+
+## Integração opcional com a Home
+
+O botão cria a janela Qt Quick no primeiro acesso. O QML recebe o adaptador sobre o modelo da Home, acompanha seleção e contagem e usa o callback de início original. Escape volta à Home clássica depois de fechar a inspeção e os detalhes. Falha ao carregar o QML mantém a Home disponível. O build opcional requer Qt Quick e Quick 3D; no Windows, o deploy procura os imports no diretório dos componentes.
+
+Em Qt 6.8.3 no Linux, um teste com modelo sintético carregou HostedLibrary em um QQuickView dentro de QWidget::createWindowContainer e verificou contagem, navegação, início, retorno à Home por sinal e bloqueio de entrada ao esconder a janela. O teste usa backend gráfico nulo. A renderização da estante, o foco em menus nativos e o início de um jogo real ainda precisam de validação no Windows.

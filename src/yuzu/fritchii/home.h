@@ -53,8 +53,10 @@ public:
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
-private:
+private Q_SLOTS:
     void ShowHome();
+
+private:
     void ShowList();
     void Restore();
     void Refresh();
@@ -78,6 +80,11 @@ private:
     QWidget* row_box = nullptr;
     QTimer* refresh_timer = nullptr;
 
+#ifdef FRITCHII_CINEMATIC
+    void ShowCinematic(QBoxLayout* central);
+    QWidget* cinematic = nullptr;
+    QPushButton* cinematic_button = nullptr;
+#endif
     bool list_mode = false;
     QString hero_path;
     u64 hero_id = 0;
