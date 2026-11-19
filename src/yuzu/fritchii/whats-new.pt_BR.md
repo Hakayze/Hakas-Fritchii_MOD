@@ -57,7 +57,7 @@ Fritchii v5.7.
 - **Extended Dynamic State é redefinido para EDS2 uma vez.** Jogadores que definiram como Disabled ou EDS3 (muitas vezes por uma dica antiga de crash na AMD) faziam o "Preparing shaders" pular quase todos os shaders. EDS2 é o modo com o qual os shaders são gravados, e o crash da AMD que essa dica evitava já foi corrigido desde a v5.3. Você ainda pode alterar depois.
 - **NVIDIA: o tamanho do cache de shaders é definido pelo próprio Fritchii.** Drivers mais novos não mostram mais "Shader Cache Size" no Painel de Controle da NVIDIA. O Fritchii agora informa ao driver para manter um cache grande apenas para o Fritchii; nada mais no seu PC muda.
 - **Correções de DLSS:** a caixa de seleção "Use NVIDIA DLSS" podia ser sobrescrita por um valor antigo por jogo e aparecer desmarcada no jogo; agora é uma configuração global. Nova opção **DLSS preset** (Default, J, K recomendado, L, M) em Gráficos.
-- Gráficos > Extensions agora deixa claro: o GPU thread pinning é integrado e fica ligado automaticamente.
+- Gráficos > Extensões agora deixa claro: o GPU thread pinning é integrado e fica ligado automaticamente.
 - A antiga janela "Prepare Shaders" agora informa que é o aquecimento rápido opcional (a preparação completa roda sozinha quando você inicia o jogo).
 
 ### Na v5.4
@@ -96,7 +96,7 @@ Windows x64. Testado com The Legend of Zelda: Ocarina of Time (0400486024DEC000)
 - **Os shaders são preparados uma vez, antes de você jogar.** Na primeira vez em que você inicia OoT, uma tela "Preparing shaders" compila os shaders do jogo em velocidade máxima (cerca de 15 minutos em uma CPU de 8 núcleos, uma única vez). Depois disso, lugares que você visita pela primeira vez rodam como se você já tivesse estado lá antes: entrar em uma nova área costumava congelar por ~0,7 s por novo shader; agora leva de 40 a 70 ms, e os carregamentos estão mais curtos. Um novo driver ou GPU os prepara novamente. Baseado no trabalho de pré-compilação de zortos (zortos293/Lichii#895, #896).
 - **Novo visual.** Tema Graphite, tela inicial, "What's new" dentro do aplicativo e Ajuda > Exportar log para relatos de bugs.
 - **Controles no jogo.** Mova o mouse para o topo da tela do jogo para Pause, Restart, Stop, Fullscreen e os menus.
-- **Novo gráfico de desempenho** (View > Performance Overlay): fps em destaque, frame time, o menor fps recente e uma linha de referência em 60 (ou 30). Telas de carregamento deixam um espaço vazio em vez de uma queda.
+- **Novo gráfico de desempenho** (Exibir > Indicadores de desempenho): fps em destaque, frame time, o menor fps recente e uma linha de referência em 60 (ou 30). Telas de carregamento deixam um espaço vazio em vez de uma queda.
 
 #### Mais rápido
 - **NPCs em movimento e multidões não derrubam mais a taxa de quadros.** Cerca de +3 fps em Castle Town para cada uma das correções envolvidas (realocação de render targets, image pool, um frame clock exato, limpeza de cópias obsoletas) e ~2,4 GB a menos de memória de vídeo (de 8,8 para 6,4 GB em Castle Town).

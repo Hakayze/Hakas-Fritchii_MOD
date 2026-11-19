@@ -4923,6 +4923,11 @@ Para inverter os eixos, mova o seu analógico primeiro verticalmente e depois ho
             <source>Failed to save the input profile "%1"</source>
             <translation>Falha ao salvar o perfil de controle "%1"</translation>
         </message>
+        <message>
+            <location filename="../../src/yuzu/configuration/configure_input_player.cpp" line="1176"/>
+            <source>Unknown</source>
+            <translation>Desconhecido</translation>
+        </message>
     </context>
     <context>
         <name>ConfigureInputProfileDialog</name>
@@ -6433,6 +6438,36 @@ Arrasta os pontos para mudar a posição, ou dá duplo-clique nas células da ta
             <source>Auto (%1 x %2, %3 x %4)</source>
             <comment>Screenshot width value</comment>
             <translation>Auto (%1 x %2, %3 x %4)</translation>
+        </message>
+        <message>
+            <location filename="../../src/qt_common/config/uisettings.cpp" line="70"/>
+            <source>Default</source>
+            <translation>Padrão</translation>
+        </message>
+        <message>
+            <location filename="../../src/qt_common/config/uisettings.cpp" line="71"/>
+            <source>Default Colorful</source>
+            <translation>Padrão colorido</translation>
+        </message>
+        <message>
+            <location filename="../../src/qt_common/config/uisettings.cpp" line="72"/>
+            <source>Dark</source>
+            <translation>Escuro</translation>
+        </message>
+        <message>
+            <location filename="../../src/qt_common/config/uisettings.cpp" line="73"/>
+            <source>Dark Colorful</source>
+            <translation>Escuro colorido</translation>
+        </message>
+        <message>
+            <location filename="../../src/qt_common/config/uisettings.cpp" line="74"/>
+            <source>Midnight Blue</source>
+            <translation>Azul meia-noite</translation>
+        </message>
+        <message>
+            <location filename="../../src/qt_common/config/uisettings.cpp" line="75"/>
+            <source>Midnight Blue Colorful</source>
+            <translation>Azul meia-noite colorido</translation>
         </message>
     </context>
     <context>
@@ -10080,41 +10115,6 @@ Mensagem de Depuração:</translation>
         </message>
     </context>
     <context>
-        <name>NetworkMessage</name>
-        <message>
-            <location filename="../../src/yuzu/multiplayer/message.cpp" line="68"/>
-            <source>Game already running</source>
-            <translation>O jogo já está rodando</translation>
-        </message>
-        <message>
-            <location filename="../../src/yuzu/multiplayer/message.cpp" line="69"/>
-            <source>Joining a room when the game is already running is discouraged and can cause the room feature not to work correctly.
-Proceed anyway?</source>
-            <translation>Entrar em uma sala enquanto o jogo já está rodando não é recomendado e pode fazer com que o recurso de sala não funcione corretamente.
-Você deseja prosseguir mesmo assim?</translation>
-        </message>
-        <message>
-            <location filename="../../src/yuzu/multiplayer/message.cpp" line="75"/>
-            <source>Leave Room</source>
-            <translation>Sair da sala</translation>
-        </message>
-        <message>
-            <location filename="../../src/yuzu/multiplayer/message.cpp" line="76"/>
-            <source>You are about to close the room. Any network connections will be closed.</source>
-            <translation>Você está prestes a fechar a sala. Todas conexões de rede serão encerradas.</translation>
-        </message>
-        <message>
-            <location filename="../../src/yuzu/multiplayer/message.cpp" line="81"/>
-            <source>Disconnect</source>
-            <translation>Desconectar</translation>
-        </message>
-        <message>
-            <location filename="../../src/yuzu/multiplayer/message.cpp" line="82"/>
-            <source>You are about to leave the room. Any network connections will be closed.</source>
-            <translation>Você está prestes a sair da sala. Todas conexões de rede serão encerradas.</translation>
-        </message>
-    </context>
-    <context>
         <name>NetworkMessage::ErrorManager</name>
         <message>
             <location filename="../../src/yuzu/multiplayer/message.cpp" line="11"/>
@@ -12658,6 +12658,43 @@ Isso é recomendado se você quiser compartilhar dados entre emuladores.</transl
             <source>Title %1 not found in Ryujinx title database.</source>
             <translation>Título %1 não encontrado na base de dados de títulos do Ryujinx.</translation>
         </message>
+        <message>
+            <location filename="../../src/yuzu/multiplayer/message.cpp" line="68"/>
+            <source>Game already running</source>
+            <translation>O jogo já está rodando</translation>
+        </message>
+        <message>
+            <location filename="../../src/yuzu/multiplayer/message.cpp" line="69"/>
+            <source>Joining a room when the game is already running is discouraged and can cause the room feature not to work correctly.
+Proceed anyway?</source>
+            <translation>Entrar em uma sala enquanto o jogo já está rodando não é recomendado e pode fazer com que o recurso de sala não funcione corretamente.
+Você deseja prosseguir mesmo assim?</translation>
+        </message>
+        <message>
+            <location filename="../../src/yuzu/multiplayer/message.cpp" line="75"/>
+            <source>Leave Room</source>
+            <translation>Sair da sala</translation>
+        </message>
+        <message>
+            <location filename="../../src/yuzu/multiplayer/message.cpp" line="76"/>
+            <source>You are about to close the room. Any network connections will be closed.</source>
+            <translation>Você está prestes a fechar a sala. Todas conexões de rede serão encerradas.</translation>
+        </message>
+        <message>
+            <location filename="../../src/yuzu/multiplayer/message.cpp" line="81"/>
+            <source>Disconnect</source>
+            <translation>Desconectar</translation>
+        </message>
+        <message>
+            <location filename="../../src/yuzu/multiplayer/message.cpp" line="82"/>
+            <source>You are about to leave the room. Any network connections will be closed.</source>
+            <translation>Você está prestes a sair da sala. Todas conexões de rede serão encerradas.</translation>
+        </message>
+        <message>
+            <location filename="../../src/yuzu/user_data_migration.cpp" line="655"/>
+            <source>nand and sdmc</source>
+            <translation>nand e sdmc</translation>
+        </message>
     </context>
     <context>
         <name>QtAmiiboSettingsDialog</name>
@@ -13828,6 +13865,16 @@ p, li { white-space: pre-wrap; }
             <location filename="../../src/yuzu/applets/qt_software_keyboard.cpp" line="415"/>
             <source>Cancel</source>
             <translation>Cancelar</translation>
+        </message>
+        <message>
+            <location filename="../../src/yuzu/applets/qt_software_keyboard.cpp" line="1072"/>
+            <source>Caps Lock</source>
+            <translation>Fixar maiúsculas</translation>
+        </message>
+        <message>
+            <location filename="../../src/yuzu/applets/qt_software_keyboard.cpp" line="1086"/>
+            <source>Caps Lock Off</source>
+            <translation>Desativar maiúsculas fixas</translation>
         </message>
     </context>
     <context>
