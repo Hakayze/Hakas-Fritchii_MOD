@@ -144,6 +144,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_TESTING=OFF `
             -DFRITCHII_CINEMATIC=ON `
+            -DENABLE_QT_TRANSLATION=ON `
             -DYUZU_TESTS=OFF `
             -DYUZU_CMD=ON `
             -DYUZU_ROOM=OFF `
@@ -214,7 +215,7 @@ jobs:
               throw "Missing expected Windows executable: $exe"
             }
           }
-          windeployqt --release --qmldir src/yuzu/cinematic/qml --no-translations build/windows-ci/bin/lichii.exe
+          windeployqt --release --qmldir src/yuzu/cinematic/qml build/windows-ci/bin/lichii.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # A CI artifact is a compile/dependency check, NOT a gameplay-tested Hakas release.

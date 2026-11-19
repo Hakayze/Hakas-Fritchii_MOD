@@ -371,31 +371,17 @@ if (ENABLE_QT_TRANSLATION)
     file(GLOB_RECURSE LANGUAGES_TS ${YUZU_QT_LANGUAGES}/*.ts)
     list(REMOVE_ITEM LANGUAGES_TS ${YUZU_QT_LANGUAGES}/en.ts)
 
-    # Compile TS files to QM files
+    list(APPEND LANGUAGES_TS ${PROJECT_SOURCE_DIR}/dist/english_plurals/en.ts)
     qt_add_translation(LANGUAGES_QM ${LANGUAGES_TS})
-
-    # Compile english plurals TS file to en.qm
-    qt_add_translation(LANGUAGES_QM ${PROJECT_SOURCE_DIR}/dist/english_plurals/en.ts)
-
-    # Build a QRC file from the QM file list
-    set(LANGUAGES_QRC ${CMAKE_CURRENT_BINARY_DIR}/languages.qrc)
-    file(WRITE ${LANGUAGES_QRC} "<RCC><qresource prefix=\"languages\">\n")
-    foreach (QM ${LANGUAGES_QM})
-        get_filename_component(QM_FILE ${QM} NAME)
-        file(APPEND ${LANGUAGES_QRC} "<file>${QM_FILE}</file>\n")
-    endforeach (QM)
-    file(APPEND ${LANGUAGES_QRC} "</qresource></RCC>")
-
-    # Add the QRC file to package in all QM files
-    qt_add_resources(LANGUAGES ${LANGUAGES_QRC})
-else()
-    set(LANGUAGES)
+    qt_add_resources(yuzu "languages"
+        PREFIX "/languages"
+        BASE "${CMAKE_CURRENT_BINARY_DIR}"
+        FILES ${LANGUAGES_QM})
 endif()
 
 target_sources(yuzu
     PRIVATE
         ${ICONS}
-        ${LANGUAGES}
         ${THEMES})
 
 # TODO(crueter): Move Assets.car/icon/icns handling to its own Module.
@@ -498,7 +484,7 @@ if (WIN32 AND NOT YUZU_USE_BUNDLED_QT)
          CONTENT "[Paths]\nPrefix=.\nPlugins=plugins\n")
     if (WINDEPLOYQT_EXECUTABLE)
         set(YUZU_EXE_DIR "$<TARGET_FILE_DIR:yuzu>")
-        add_custom_command(TARGET yuzu POST_BUILD COMMAND ${WINDEPLOYQT_EXECUTABLE} "$<TARGET_FILE:yuzu>" --dir "${YUZU_EXE_DIR}" --libdir "${YUZU_EXE_DIR}" --plugindir "${YUZU_EXE_DIR}/plugins" ${CINEMATIC_DEPLOY_ARGS} --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --no-translations --verbose 0)
+        add_custom_command(TARGET yuzu POST_BUILD COMMAND ${WINDEPLOYQT_EXECUTABLE} "$<TARGET_FILE:yuzu>" --dir "${YUZU_EXE_DIR}" --libdir "${YUZU_EXE_DIR}" --plugindir "${YUZU_EXE_DIR}/plugins" ${CINEMATIC_DEPLOY_ARGS} --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --verbose 0)
     else()
         message(WARNING "windeployqt not found: copy the Qt DLLs next to the executable yourself")
     endif()

@@ -191,8 +191,6 @@ QIcon Glyph(const QString& name, unsigned rgb, int px) {
 }
 
 void RestructureMenus(Ui::MainWindow& ui, QMainWindow& window, const MenuHooks& hooks) {
-    const auto tr = [](const char* text) { return QObject::tr(text); };
-
     // File: open, install, folders, settings, exit.
     ui.menuOpen_Eden_Folders->removeAction(ui.action_Log_Folder);
     QMenu* file = ui.menu_File;
@@ -210,7 +208,7 @@ void RestructureMenus(Ui::MainWindow& ui, QMainWindow& window, const MenuHooks& 
     file->addAction(ui.action_Exit);
 
     // Game (was Emulation): pause, stop, restart, shaders, game settings.
-    ui.menu_Emulation->setTitle(tr("&Game"));
+    ui.menu_Emulation->setTitle(QObject::tr("&Game"));
     ui.menu_Emulation->removeAction(ui.action_Configure);
 
     // View: window, bars, game list, window size, effects, debugging.
@@ -248,7 +246,7 @@ void RestructureMenus(Ui::MainWindow& ui, QMainWindow& window, const MenuHooks& 
     amiibo->insertAction(first_cabinet, ui.action_Load_Amiibo);
     amiibo->insertSeparator(first_cabinet);
     tools->addMenu(amiibo);
-    QMenu* advanced = new QMenu(tr("Ad&vanced"), tools);
+    QMenu* advanced = new QMenu(QObject::tr("Ad&vanced"), tools);
     advanced->addMenu(ui.menu_Applets);
     advanced->addMenu(ui.menuTAS);
     advanced->addMenu(ui.menu_Multiplayer);
@@ -258,32 +256,32 @@ void RestructureMenus(Ui::MainWindow& ui, QMainWindow& window, const MenuHooks& 
     ui.menubar->removeAction(ui.menu_Multiplayer->menuAction());
 
     // Help: the log first; Eden's mods page leaves the menu.
-    auto* export_log = new QAction(tr("&Export Log..."), &window);
+    auto* export_log = new QAction(QObject::tr("&Export Log..."), &window);
     QObject::connect(export_log, &QAction::triggered, &window, hooks.export_log);
     ui.menu_Help->removeAction(ui.action_Open_Mods_Page);
     QAction* first_help = ui.menu_Help->actions().value(0);
-    auto* whats_new = new QAction(tr("What's &New"), &window);
+    auto* whats_new = new QAction(QObject::tr("What's &New"), &window);
     QObject::connect(whats_new, &QAction::triggered, &window, hooks.whats_new);
-    auto* delete_cache = new QAction(tr("&Delete Shader Cache..."), &window);
+    auto* delete_cache = new QAction(QObject::tr("&Delete Shader Cache..."), &window);
     QObject::connect(delete_cache, &QAction::triggered, &window, hooks.delete_shader_cache);
     ui.menu_Help->insertAction(first_help, export_log);
     ui.menu_Help->insertAction(first_help, ui.action_Log_Folder);
     ui.menu_Help->insertAction(first_help, delete_cache);
     ui.menu_Help->insertSeparator(first_help);
     ui.menu_Help->insertAction(first_help, whats_new);
-    auto* discord = new QAction(Icon(QStringLiteral("community"), 16), tr("Fritchii &Discord"), &window);
+    auto* discord = new QAction(Icon(QStringLiteral("community"), 16), QObject::tr("Fritchii &Discord"), &window);
     QObject::connect(discord, &QAction::triggered, &window, [] { OpenDiscord(); });
-    auto* donate = new QAction(Icon(QStringLiteral("heart"), 16), tr("D&onate"), &window);
+    auto* donate = new QAction(Icon(QStringLiteral("heart"), 16), QObject::tr("D&onate"), &window);
     QObject::connect(donate, &QAction::triggered, &window, [] { OpenDonate(); });
     ui.menu_Help->insertAction(first_help, discord);
     ui.menu_Help->insertAction(first_help, donate);
     // v5.8.1: copy a profile again after the first launch's automatic import (a player whose
     // newest saves were in Lichii 150+'s folder got the older eden copy).
-    auto* copy_data = new QAction(tr("&Copy Data from Eden or Lichii..."), &window);
+    auto* copy_data = new QAction(QObject::tr("&Copy Data from Eden or Lichii..."), &window);
     QObject::connect(copy_data, &QAction::triggered, &window, [&window] { CopyDataFromOldFolder(window); });
     ui.menu_Help->insertAction(first_help, copy_data);
     // v5.8.3: export, import and copy saves between Fritchii, Eden and Lichii.
-    auto* saves = new QAction(tr("Sa&ves..."), &window);
+    auto* saves = new QAction(QObject::tr("Sa&ves..."), &window);
     QObject::connect(saves, &QAction::triggered, &window, [&window] {
         ShowSavesWindow(&window,
                         [] { return QtCommon::system && QtCommon::system->IsPoweredOn(); });
@@ -291,41 +289,41 @@ void RestructureMenus(Ui::MainWindow& ui, QMainWindow& window, const MenuHooks& 
     ui.menu_Help->insertAction(copy_data, saves);
 
     // Plain names.
-    ui.menu_recent_files->setTitle(tr("Open &Recent"));
-    ui.menuOpen_Eden_Folders->setTitle(tr("Open &Folder"));
-    ui.menu_Game_List_Mode->setTitle(tr("Game &List"));
-    ui.menuGame_Icon_Size->setTitle(tr("&Icon Size"));
-    ui.menu_Reset_Window_Size->setTitle(tr("&Window Size"));
-    ui.menu_Create_Shortcuts->setTitle(tr("Create &Shortcut"));
-    Rename(ui.action_Load_File, tr("&Open Game..."));
-    Rename(ui.action_Load_Folder, tr("Open &Extracted Game..."));
-    Rename(ui.action_Install_File_NAND, tr("&Install Update or DLC..."));
-    Rename(ui.action_Configure, tr("&Settings..."));
-    Rename(ui.action_Configure_Current_Game, tr("Game &Settings..."));
-    Rename(ui.action_Root_Data_Folder, tr("&Data"));
-    Rename(ui.action_NAND_Folder, tr("&NAND"));
-    Rename(ui.action_SDMC_Folder, tr("&SD Card"));
-    Rename(ui.action_Mod_Folder, tr("&Mods"));
-    Rename(ui.action_Log_Folder, tr("Open &Log Folder"));
-    Rename(ui.action_Reset_Window_Size_720, tr("&720p"));
-    Rename(ui.action_Reset_Window_Size_900, tr("&900p"));
-    Rename(ui.action_Reset_Window_Size_1080, tr("&1080p"));
-    Rename(ui.action_Tree_View, tr("&List"));
-    Rename(ui.action_Grid_View, tr("&Grid"));
-    Rename(ui.action_Carousel_View, tr("&Carousel"));
-    Rename(ui.action_Show_Game_Name, tr("Show Game &Names"));
-    Rename(ui.action_Show_Performance_Overlay, tr("&Performance Overlay"));
-    Rename(ui.action_Show_Status_Bar, tr("&Status Bar"));
-    Rename(ui.action_Show_Filter_Bar, tr("Search &Bar"));
-    Rename(ui.action_Single_Window_Mode, tr("Single &Window"));
-    Rename(ui.action_Enable_Overlay_Applet, tr("&Overlay Display Applet"));
-    Rename(ui.action_Data_Manager, tr("&Data Manager..."));
-    Rename(ui.action_Capture_Screenshot, tr("Take &Screenshot"));
-    Rename(ui.action_Load_Amiibo, tr("&Load or Remove Amiibo..."));
-    Rename(ui.action_Firmware_From_Folder, tr("From &Folder..."));
-    Rename(ui.action_Firmware_From_ZIP, tr("From &ZIP..."));
-    Rename(ui.action_About, tr("&About Fritchii"));
-    Rename(ui.action_Eden_Dependencies, tr("&Open-Source Components"));
+    ui.menu_recent_files->setTitle(QObject::tr("Open &Recent"));
+    ui.menuOpen_Eden_Folders->setTitle(QObject::tr("Open &Folder"));
+    ui.menu_Game_List_Mode->setTitle(QObject::tr("Game &List"));
+    ui.menuGame_Icon_Size->setTitle(QObject::tr("&Icon Size"));
+    ui.menu_Reset_Window_Size->setTitle(QObject::tr("&Window Size"));
+    ui.menu_Create_Shortcuts->setTitle(QObject::tr("Create &Shortcut"));
+    Rename(ui.action_Load_File, QObject::tr("&Open Game..."));
+    Rename(ui.action_Load_Folder, QObject::tr("Open &Extracted Game..."));
+    Rename(ui.action_Install_File_NAND, QObject::tr("&Install Update or DLC..."));
+    Rename(ui.action_Configure, QObject::tr("&Settings..."));
+    Rename(ui.action_Configure_Current_Game, QObject::tr("Game &Settings..."));
+    Rename(ui.action_Root_Data_Folder, QObject::tr("&Data"));
+    Rename(ui.action_NAND_Folder, QObject::tr("&NAND"));
+    Rename(ui.action_SDMC_Folder, QObject::tr("&SD Card"));
+    Rename(ui.action_Mod_Folder, QObject::tr("&Mods"));
+    Rename(ui.action_Log_Folder, QObject::tr("Open &Log Folder"));
+    Rename(ui.action_Reset_Window_Size_720, QObject::tr("&720p"));
+    Rename(ui.action_Reset_Window_Size_900, QObject::tr("&900p"));
+    Rename(ui.action_Reset_Window_Size_1080, QObject::tr("&1080p"));
+    Rename(ui.action_Tree_View, QObject::tr("&List"));
+    Rename(ui.action_Grid_View, QObject::tr("&Grid"));
+    Rename(ui.action_Carousel_View, QObject::tr("&Carousel"));
+    Rename(ui.action_Show_Game_Name, QObject::tr("Show Game &Names"));
+    Rename(ui.action_Show_Performance_Overlay, QObject::tr("&Performance Overlay"));
+    Rename(ui.action_Show_Status_Bar, QObject::tr("&Status Bar"));
+    Rename(ui.action_Show_Filter_Bar, QObject::tr("Search &Bar"));
+    Rename(ui.action_Single_Window_Mode, QObject::tr("Single &Window"));
+    Rename(ui.action_Enable_Overlay_Applet, QObject::tr("&Overlay Display Applet"));
+    Rename(ui.action_Data_Manager, QObject::tr("&Data Manager..."));
+    Rename(ui.action_Capture_Screenshot, QObject::tr("Take &Screenshot"));
+    Rename(ui.action_Load_Amiibo, QObject::tr("&Load or Remove Amiibo..."));
+    Rename(ui.action_Firmware_From_Folder, QObject::tr("From &Folder..."));
+    Rename(ui.action_Firmware_From_ZIP, QObject::tr("From &ZIP..."));
+    Rename(ui.action_About, QObject::tr("&About Fritchii"));
+    Rename(ui.action_Eden_Dependencies, QObject::tr("&Open-Source Components"));
 }
 
 QPushButton* MakeGraphicsButton(QWidget* parent, GraphicsHooks hooks) {
@@ -341,7 +339,7 @@ QPushButton* MakeGraphicsButton(QWidget* parent, GraphicsHooks hooks) {
             sub->setEnabled(enabled);
             auto* group = new QActionGroup(sub);
             for (const auto& [value, text] : texts) {
-                QAction* action = sub->addAction(text);
+                QAction* action = sub->addAction(QCoreApplication::translate("MainWindow", qUtf8Printable(text)));
                 action->setCheckable(true);
                 action->setChecked(value == current);
                 group->addAction(action);
