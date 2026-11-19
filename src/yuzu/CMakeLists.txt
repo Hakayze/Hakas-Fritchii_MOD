@@ -371,31 +371,17 @@ if (ENABLE_QT_TRANSLATION)
     file(GLOB_RECURSE LANGUAGES_TS ${YUZU_QT_LANGUAGES}/*.ts)
     list(REMOVE_ITEM LANGUAGES_TS ${YUZU_QT_LANGUAGES}/en.ts)
 
-    # Compile TS files to QM files
+    list(APPEND LANGUAGES_TS ${PROJECT_SOURCE_DIR}/dist/english_plurals/en.ts)
     qt_add_translation(LANGUAGES_QM ${LANGUAGES_TS})
-
-    # Compile english plurals TS file to en.qm
-    qt_add_translation(LANGUAGES_QM ${PROJECT_SOURCE_DIR}/dist/english_plurals/en.ts)
-
-    # Build a QRC file from the QM file list
-    set(LANGUAGES_QRC ${CMAKE_CURRENT_BINARY_DIR}/languages.qrc)
-    file(WRITE ${LANGUAGES_QRC} "<RCC><qresource prefix=\"languages\">\n")
-    foreach (QM ${LANGUAGES_QM})
-        get_filename_component(QM_FILE ${QM} NAME)
-        file(APPEND ${LANGUAGES_QRC} "<file>${QM_FILE}</file>\n")
-    endforeach (QM)
-    file(APPEND ${LANGUAGES_QRC} "</qresource></RCC>")
-
-    # Add the QRC file to package in all QM files
-    qt_add_resources(LANGUAGES ${LANGUAGES_QRC})
-else()
-    set(LANGUAGES)
+    qt_add_resources(yuzu "languages"
+        PREFIX "/languages"
+        BASE "${CMAKE_CURRENT_BINARY_DIR}"
+        FILES ${LANGUAGES_QM})
 endif()
 
 target_sources(yuzu
     PRIVATE
         ${ICONS}
-        ${LANGUAGES}
         ${THEMES})
 
 # TODO(crueter): Move Assets.car/icon/icns handling to its own Module.
@@ -442,6 +428,18 @@ endif()
 
 target_link_libraries(yuzu PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(yuzu PRIVATE common core input_common frontend_common network video_core qt_common)
+option(FRITCHII_CINEMATIC "Build the optional Fritchii 3D library" OFF)
+if (FRITCHII_CINEMATIC)
+    find_package(Qt6 REQUIRED COMPONENTS Quick Quick3D)
+    target_compile_definitions(yuzu PRIVATE FRITCHII_CINEMATIC)
+    target_sources(yuzu PRIVATE cinematic/cinematic_game_model.cpp cinematic/cinematic_game_model.h)
+    target_link_libraries(yuzu PRIVATE Qt6::Quick Qt6::Quick3D)
+    qt_add_resources(yuzu cinematic_library PREFIX "/cinematic" BASE "cinematic/qml"
+        FILES cinematic/qml/HostedLibrary.qml cinematic/qml/CinematicLibrary.qml
+              cinematic/qml/ShelfScene.qml cinematic/qml/GameCase.qml)
+    set(CINEMATIC_DEPLOY_ARGS --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/cinematic/qml")
+endif()
+
 target_link_libraries(yuzu PRIVATE Boost::headers Qt6::Widgets Qt6::Charts Qt6::Concurrent Qt6::Network)
 # Unpacks NVIDIA's files from the Streamline release (nvidia_dlss_panel.cpp).
 target_link_libraries(yuzu PRIVATE ZLIB::ZLIB)
@@ -486,7 +484,7 @@ if (WIN32 AND NOT YUZU_USE_BUNDLED_QT)
          CONTENT "[Paths]\nPrefix=.\nPlugins=plugins\n")
     if (WINDEPLOYQT_EXECUTABLE)
         set(YUZU_EXE_DIR "$<TARGET_FILE_DIR:yuzu>")
-        add_custom_command(TARGET yuzu POST_BUILD COMMAND ${WINDEPLOYQT_EXECUTABLE} "$<TARGET_FILE:yuzu>" --dir "${YUZU_EXE_DIR}" --libdir "${YUZU_EXE_DIR}" --plugindir "${YUZU_EXE_DIR}/plugins" --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --no-translations --verbose 0)
+        add_custom_command(TARGET yuzu POST_BUILD COMMAND ${WINDEPLOYQT_EXECUTABLE} "$<TARGET_FILE:yuzu>" --dir "${YUZU_EXE_DIR}" --libdir "${YUZU_EXE_DIR}" --plugindir "${YUZU_EXE_DIR}/plugins" ${CINEMATIC_DEPLOY_ARGS} --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --verbose 0)
     else()
         message(WARNING "windeployqt not found: copy the Qt DLLs next to the executable yourself")
     endif()

@@ -5,6 +5,7 @@ on:
   pull_request:
     branches:
       - nx2
+      - base/fritchii-v5.8.4
     paths:
       - ".github/workflows/windows-baseline.yml"
       - "CMakeLists.txt"
@@ -93,7 +94,7 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          modules: qtcharts
+          modules: qtcharts qtquick3d qtshadertools qtquicktimeline
           cache: true
 
       # Reuse the SDK installer already employed by the upstream release workflow.
@@ -133,7 +134,7 @@ jobs:
           restore-keys: |
             hakas-win-cpm-v1-
 
-      - name: Configure original classic frontend
+      - name: Configure frontend with cinematic library
         shell: pwsh
         run: |
           cmake -S . -B build/windows-ci -G Ninja `
@@ -142,6 +143,8 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_TESTING=OFF `
+            -DFRITCHII_CINEMATIC=ON `
+            -DENABLE_QT_TRANSLATION=ON `
             -DYUZU_TESTS=OFF `
             -DYUZU_CMD=ON `
             -DYUZU_ROOM=OFF `
@@ -198,7 +201,7 @@ jobs:
           if ($identity -notmatch '#define BUILD_NAME "Fritchii"') { throw "Fritchii UI would be disabled by build identity" }
           if ($identity -notmatch '#define BUILD_VERSION "v5.8.4"') { throw "Incorrect Fritchii build version" }
 
-      - name: Build classic frontend and CLI
+      - name: Build cinematic frontend and CLI
         shell: pwsh
         run: |
           cmake --build build/windows-ci --target yuzu yuzu-cmd --parallel 4
@@ -212,7 +215,7 @@ jobs:
               throw "Missing expected Windows executable: $exe"
             }
           }
-          windeployqt --release --no-translations build/windows-ci/bin/lichii.exe
+          windeployqt --release --qmldir src/yuzu/cinematic/qml build/windows-ci/bin/lichii.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # A CI artifact is a compile/dependency check, NOT a gameplay-tested Hakas release.
