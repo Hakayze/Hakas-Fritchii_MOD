@@ -232,14 +232,9 @@ jobs:
           windeployqt --release build/windows-ci/bin/fritchii.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Test NUP metadata editing on Windows
+      - name: Verify both languages in the packaged Windows frontend
         shell: pwsh
-        run: |
-          cmake --build build/windows-ci --target nup_metadata_tests --parallel 4
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & ./build/windows-ci/bin/nup_metadata_tests.exe "[nup-layout]"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Remove-Item ./build/windows-ci/bin/nup_metadata_tests.exe
+        run: ./tools/translations/test-windows-package.ps1 -PackageDir (Resolve-Path build/windows-ci/bin)
 
       # A CI artifact is a compile/dependency check, NOT a gameplay-tested Hakas release.
       - name: Upload Windows CI build
@@ -250,9 +245,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Verify both languages in the packaged Windows frontend
+      - name: Test NUP metadata editing on Windows
         shell: pwsh
-        run: ./tools/translations/test-windows-package.ps1 -PackageDir (Resolve-Path build/windows-ci/bin)
+        run: |
+          cmake --build build/windows-ci --target nup_metadata_tests --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./build/windows-ci/bin/nup_metadata_tests.exe "[nup-layout]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item ./build/windows-ci/bin/nup_metadata_tests.exe
 
       - name: Stop compiler cache
         if: ${{ !cancelled() && (steps.build.outcome == 'failure' || steps.build.outcome == 'success') }}
