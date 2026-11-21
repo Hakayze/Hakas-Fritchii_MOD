@@ -98,6 +98,7 @@
 #include <QFutureWatcher>
 #include <QGuiApplication>
 #include <QInputDialog>
+#include "yuzu/interface_translations.h"
 #include <QMimeData>
 #include <QPalette>
 #include <QProgressDialog>
@@ -479,13 +480,15 @@ inline static bool isDarkMode() {
 }
 #endif // _WIN32
 
-MainWindow::MainWindow(bool has_broken_vulkan)
-    : ui{std::make_unique<Ui::MainWindow>()},
-      input_subsystem{std::make_shared<InputCommon::InputSubsystem>()}, user_data_migrator{this} {
+MainWindow::MainWindow(bool has_broken_vulkan, InterfaceTranslations& translations_)
+    : translations{translations_}, ui{std::make_unique<Ui::MainWindow>()},
+      input_subsystem{std::make_shared<InputCommon::InputSubsystem>()} {
+    UserDataMigrator{this};
     QtCommon::Init(this);
 
     Common::FS::CreateEdenPaths();
     this->config = std::make_unique<QtConfig>();
+    translations.Load(QString::fromStdString(UISettings::values.language.GetValue()));
     MigrateFriztiSettings(FriztiStart::AskFirst);
     // New mods start disabled: saved at once (from the GUI thread), so a crash keeps it.
     FileSys::PatchManager::SetNewModsCallback([this](u64 title_id) {
@@ -510,8 +513,6 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     SetGamemodeEnabled(UISettings::values.enable_gamemode.GetValue());
 
     UISettings::RestoreWindowState(config);
-
-    LoadTranslation();
     FrontendCommon::GenerateSettings();
 
     setAcceptDrops(true);
@@ -1376,7 +1377,7 @@ void MainWindow::WebBrowserOpenWebPage(const std::string& main_url,
     bool exit_check = false;
 
     // TODO (Morph): Remove this
-    QAction* exit_action = new QAction(tr("Disable Web Applet"), this);
+    QAction* exit_action = TranslatedAction(QT_TRANSLATE_NOOP("MainWindow", "Disable Web Applet"));
     connect(exit_action, &QAction::triggered, this, [this] {
         const auto result = QMessageBox::warning(
             this, tr("Disable Web Applet"),
@@ -1649,7 +1650,7 @@ void MainWindow::InitializeWidgets() {
             [this](const QPoint& menu_location) {
                 QMenu context_menu;
                 for (auto const& aa_text_pair : ConfigurationShared::anti_aliasing_texts_map) {
-                    context_menu.addAction(aa_text_pair.second, [this, aa_text_pair] {
+                    context_menu.addAction(tr(qUtf8Printable(aa_text_pair.second)), [this, aa_text_pair] {
                         Settings::values.anti_aliasing.SetValue(aa_text_pair.first);
                         UpdateAAText();
                     });
@@ -1672,7 +1673,7 @@ void MainWindow::InitializeWidgets() {
             [this](const QPoint& menu_location) {
                 QMenu context_menu;
                 for (auto const& filter_text_pair : ConfigurationShared::scaling_filter_texts_map) {
-                    context_menu.addAction(filter_text_pair.second, [this, filter_text_pair] {
+                    context_menu.addAction(tr(qUtf8Printable(filter_text_pair.second)), [this, filter_text_pair] {
                         Settings::values.scaling_filter.SetValue(filter_text_pair.first);
                         UpdateFilterText();
                     });
@@ -1695,7 +1696,7 @@ void MainWindow::InitializeWidgets() {
                 QMenu context_menu;
 
                 for (auto const& pair : ConfigurationShared::use_docked_mode_texts_map) {
-                    context_menu.addAction(pair.second, [this, &pair] {
+                    context_menu.addAction(tr(qUtf8Printable(pair.second)), [this, &pair] {
                         if (pair.first != Settings::values.use_docked_mode.GetValue()) {
                             OnToggleDockedMode();
                         }
@@ -1719,7 +1720,7 @@ void MainWindow::InitializeWidgets() {
                 QMenu context_menu;
 
                 for (auto const& gpu_accuracy_pair : ConfigurationShared::gpu_accuracy_texts_map) {
-                    context_menu.addAction(gpu_accuracy_pair.second, [this, gpu_accuracy_pair] {
+                    context_menu.addAction(tr(qUtf8Printable(gpu_accuracy_pair.second)), [this, gpu_accuracy_pair] {
                         Settings::values.gpu_accuracy.SetValue(gpu_accuracy_pair.first);
                         UpdateGPUAccuracyButton();
                     });
@@ -1761,7 +1762,7 @@ void MainWindow::InitializeWidgets() {
                         continue;
                     }
                     context_menu.addAction(
-                        renderer_backend_pair.second, [this, renderer_backend_pair] {
+                        tr(qUtf8Printable(renderer_backend_pair.second)), [this, renderer_backend_pair] {
                             Settings::values.renderer_backend.SetValue(renderer_backend_pair.first);
                             UpdateAPIText();
                         });
@@ -2094,7 +2095,7 @@ void MainWindow::ConnectMenuEvents() {
     connect_menu(ui->action_Open_Mods_Page, &MainWindow::OnOpenModsPage);
     connect_menu(ui->action_Open_UserHandbook, &MainWindow::OnOpenUserHandbook);
     connect_menu(ui->action_Restart, &MainWindow::OnRestartGame);
-    action_prepare_shaders_now = new QAction(tr("Prepare &Shaders Now"), this);
+    action_prepare_shaders_now = TranslatedAction(QT_TRANSLATE_NOOP("MainWindow", "Prepare &Shaders Now"));
     action_prepare_shaders_now->setEnabled(false);
     ui->menu_Emulation->insertAction(ui->action_Configure, action_prepare_shaders_now);
     ui->menu_Emulation->insertSeparator(ui->action_Configure);
@@ -2228,11 +2229,11 @@ void MainWindow::ConnectMenuEvents() {
     connect_menu(ui->action_Data_Manager, &MainWindow::OnDataDialog);
 
 #ifdef ENABLE_UPDATE_CHECKER
-    auto* check_action = new QAction(tr("Check for Updates..."), this);
+    auto* check_action = TranslatedAction(QT_TRANSLATE_NOOP("MainWindow", "Check for Updates..."));
     ui->menu_Help->insertAction(ui->action_About, check_action);
     connect(check_action, &QAction::triggered, this, &MainWindow::OnCheckForUpdates);
 
-    auto* rollback_action = new QAction(tr("Roll Back to the Previous Version..."), this);
+    auto* rollback_action = TranslatedAction(QT_TRANSLATE_NOOP("MainWindow", "Roll Back to the Previous Version..."));
     rollback_action->setVisible(false);
     ui->menu_Help->insertAction(ui->action_About, rollback_action);
     connect(ui->menu_Help, &QMenu::aboutToShow, this, [this, rollback_action] {
@@ -3259,7 +3260,7 @@ void MainWindow::OnGameListRemoveInstalledEntry(u64 program_id,
         case QtCommon::Game::InstalledEntryType::AddOnContent:
             return tr("Remove Installed Game DLC?");
         default:
-            return QStringLiteral("Remove Installed Game <Invalid Type>?");
+            return tr("Remove Installed Game <Invalid Type>?");
         }
     }();
 
@@ -4747,7 +4748,7 @@ void MainWindow::OnExportLog() {
 
 void MainWindow::SetUpProfilingMode() {
     // Help > Profiling Mode (both looks), first in the menu: turn it on, play, Export Log.
-    auto* action = new QAction(tr("Profiling Mode"), this);
+    auto* action = TranslatedAction(QT_TRANSLATE_NOOP("MainWindow", "Profiling Mode"));
     action->setCheckable(true);
     action->setChecked(UISettings::values.profiling_mode.GetValue());
     QAction* first = ui->menu_Help->actions().value(0);
@@ -4798,7 +4799,7 @@ void MainWindow::SetUpProfilingMode() {
 
 void MainWindow::SetUpSwitchesWindow() {
     // Help > Known Issues: "Good to know" again (it shows once per version on its own).
-    QAction* const known = new QAction(tr("Known Issues"), this);
+    QAction* const known = TranslatedAction(QT_TRANSLATE_NOOP("MainWindow", "Known Issues"));
     ui->menu_Help->insertAction(ui->action_About, known);
     connect(known, &QAction::triggered, this,
             [this] { FritchiiKnownIssues::Show(this, vk_device_records); });
@@ -4807,7 +4808,8 @@ void MainWindow::SetUpSwitchesWindow() {
     // can restart Fritchii with its launch environment, so the restart doesn't inherit this
     // process's file switches as environment ones (those would beat the file from then on).
     ui->menu_Tools->addSeparator();
-    QAction* action = ui->menu_Tools->addAction(tr("S&witches..."));
+    QAction* action = TranslatedAction(QT_TRANSLATE_NOOP("MainWindow", "S&witches..."));
+    ui->menu_Tools->addAction(action);
     connect(action, &QAction::triggered, this, [this] {
         const bool restart = FritchiiUi::ShowSwitchesWindow(
             this, [this] { return emulation_running || boot_in_progress; });
@@ -5827,12 +5829,12 @@ void MainWindow::UpdateStatusBar() {
     dlss_status_text.clear();
     if (dlss.evaluations > dlss_evaluations) {
         const auto mode_text = [](Settings::NvidiaDlssQuality mode) {
-            return ConfigurationShared::nvidia_dlss_quality_texts_map.at(mode).toUpper();
+            return tr(qUtf8Printable(ConfigurationShared::nvidia_dlss_quality_texts_map.at(mode))).toUpper();
         };
         dlss_status_text =
             tr("DLSS %1 %2", "NVIDIA DLSS mode and model preset, e.g. DLSS DLAA M")
                 .arg(mode_text(dlss.mode),
-                     ConfigurationShared::nvidia_dlss_preset_texts_map.at(dlss.preset).toUpper());
+                     tr(qUtf8Printable(ConfigurationShared::nvidia_dlss_preset_texts_map.at(dlss.preset))).toUpper());
         if (dlss.requested != Settings::NvidiaDlssQuality::Automatic &&
             dlss.requested != dlss.mode) {
             dlss_status_text += tr(" (%1 DOESN'T FIT)", "The DLSS mode the user chose")
@@ -5966,7 +5968,7 @@ void MainWindow::UpdateGPUAccuracyButton() {
     const auto gpu_accuracy = Settings::values.gpu_accuracy.GetValue();
     const auto gpu_accuracy_text =
         ConfigurationShared::gpu_accuracy_texts_map.find(gpu_accuracy)->second;
-    gpu_accuracy_button->setText(gpu_accuracy_text.toUpper());
+    gpu_accuracy_button->setText(tr(qUtf8Printable(gpu_accuracy_text)).toUpper());
     gpu_accuracy_button->setChecked(gpu_accuracy != Settings::GpuAccuracy::Low);
 }
 
@@ -6070,28 +6072,28 @@ void MainWindow::UpdateDockedButton() {
     const auto console_mode = Settings::values.use_docked_mode.GetValue();
     dock_status_button->setChecked(Settings::IsDockedMode());
     dock_status_button->setText(
-        ConfigurationShared::use_docked_mode_texts_map.find(console_mode)->second.toUpper());
+        tr(qUtf8Printable(ConfigurationShared::use_docked_mode_texts_map.find(console_mode)->second)).toUpper());
 }
 
 void MainWindow::UpdateAPIText() {
     const auto api = Settings::values.renderer_backend.GetValue();
     const auto renderer_status_text =
         ConfigurationShared::renderer_backend_texts_map.find(api)->second;
-    renderer_status_button->setText(renderer_status_text.toUpper());
+    renderer_status_button->setText(tr(qUtf8Printable(renderer_status_text)).toUpper());
 }
 
 void MainWindow::UpdateFilterText() {
     const auto filter = Settings::values.scaling_filter.GetValue();
     const auto filter_text = ConfigurationShared::scaling_filter_texts_map.find(filter)->second;
-    filter_status_button->setText(filter_text.toUpper());
+    filter_status_button->setText(tr(qUtf8Printable(filter_text)).toUpper());
 }
 
 void MainWindow::UpdateAAText() {
     const auto aa_mode = Settings::values.anti_aliasing.GetValue();
     const auto aa_text = ConfigurationShared::anti_aliasing_texts_map.find(aa_mode)->second;
     aa_status_button->setText(aa_mode == Settings::AntiAliasing::None
-                                  ? QStringLiteral(QT_TRANSLATE_NOOP("MainWindow", "NO AA"))
-                                  : aa_text.toUpper());
+                                  ? tr("NO AA")
+                                  : tr(qUtf8Printable(aa_text)).toUpper());
 }
 
 #ifdef HAS_RESHADE
@@ -6336,11 +6338,11 @@ bool MainWindow::SelectRomFSDumpTarget(const FileSys::ContentProvider& installed
         for (auto& [title_id, title_type, record_type] : available_title_ids) {
             const auto hex_title_id = QString::fromStdString(fmt::format("{:X}", title_id));
             if (record_type == FileSys::ContentRecordType::Program) {
-                list.push_back(QStringLiteral("Program [%1]").arg(hex_title_id));
+                list.push_back(tr("Program [%1]").arg(hex_title_id));
             } else if (record_type == FileSys::ContentRecordType::HtmlDocument) {
-                list.push_back(QStringLiteral("HTML document [%1]").arg(hex_title_id));
+                list.push_back(tr("HTML document [%1]").arg(hex_title_id));
             } else if (record_type == FileSys::ContentRecordType::LegalInformation) {
-                list.push_back(QStringLiteral("Legal information [%1]").arg(hex_title_id));
+                list.push_back(tr("Legal information [%1]").arg(hex_title_id));
             } else {
                 list.push_back(
                     QStringLiteral("DLC %1 [%2]").arg(title_id & 0x7FF).arg(hex_title_id));
@@ -6589,36 +6591,24 @@ void MainWindow::UpdateUITheme() {
 #endif
 }
 
-void MainWindow::LoadTranslation() {
-    bool loaded;
-
-    if (UISettings::values.language.GetValue().empty()) {
-        // If the selected language is empty, use system locale
-        loaded = translator.load(QLocale(), {}, {}, QStringLiteral(":/languages/"));
-    } else {
-        // Otherwise load from the specified file
-        loaded = translator.load(QString::fromStdString(UISettings::values.language.GetValue()),
-                                 QStringLiteral(":/languages/"));
-    }
-
-    if (loaded)
-        qApp->installTranslator(&translator);
-    else
-        UISettings::values.language = std::string("en");
+QAction* MainWindow::TranslatedAction(const char* source) {
+    auto* action = new QAction(tr(source), this);
+    connect(this, &MainWindow::InterfaceLanguageChanged, action,
+            [action, source] { action->setText(MainWindow::tr(source)); });
+    return action;
 }
 
 void MainWindow::OnLanguageChanged(const QString& locale) {
-    if (UISettings::values.language.GetValue() != std::string("en"))
-        qApp->removeTranslator(&translator);
-
+    UISettings::values.language = locale.toStdString();
+    translations.Load(locale);
     QList<QAction*> actions = game_size_actions->actions();
     for (size_t i = 0; i < default_game_icon_sizes.size(); i++) {
         actions.at(i)->setText(GetTranslatedGameIconSize(i));
     }
 
-    UISettings::values.language = locale.toStdString();
-    LoadTranslation();
     ui->retranslateUi(this);
+    emit InterfaceLanguageChanged();
+    UpdateStatusButtons();
     multiplayer_state->retranslateUi();
     UpdateWindowTitle();
 }

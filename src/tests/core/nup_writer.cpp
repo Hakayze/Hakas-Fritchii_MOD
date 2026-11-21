@@ -899,3 +899,66 @@ TEST_CASE("NUP UpdateMetadata updates title name and icon in metadata", "[nup]")
     REQUIRE(nup.GetPackages()[0].icon == fake_icon);
     REQUIRE(PackedTree(nup.GetRomFSDir(0)) == SourceTree(root / "Base/RomFS"));
 }
+
+TEST_CASE("Both icon editors preserve extents with metadata ahead of the blob", "[nup][nup-layout]") {
+    TempDir t;
+    const auto root = t.path / "Game";
+    MakeDump(root);
+    const auto archive = t.path / "Game.nup";
+    FileSys::Nup::PackOptions options;
+    options.metadata.title_name = "Before";
+    REQUIRE(FileSys::Nup::PackDump(root, archive, options) == FileSys::Nup::PackResult::Success);
+    auto bytes = ReadAll(archive);
+    const size_t toc = Le(bytes, 0x08, 8);
+    const size_t blob = Le(bytes, 0x38, 8);
+    const size_t first = toc + 0x30;
+    const size_t size = Le(bytes, first + 0x28, 4);
+    REQUIRE(size > 0);
+    auto meta = bytes.substr(Le(bytes, first + 0x20, 8), size);
+    meta.resize((size + 15) & ~size_t{15});
+    bytes.insert(blob, meta);
+    const size_t packages = Le(bytes, toc + 4, 4);
+    for (size_t i = 0; i < packages; ++i) {
+        const size_t at = first + i * 0x40 + 0x20;
+        const u64 old = Le(bytes, at, 8);
+        if (old != 0) {
+            SetLe(bytes, at, i == 0 ? blob : old + meta.size(), 8);
+        }
+    }
+    const size_t files = first + packages * 0x40 + Le(bytes, toc + 8, 8) * 0x18;
+    for (size_t i = 0; i < Le(bytes, toc + 0x10, 8); ++i) {
+        const size_t at = files + i * 0x50 + 0x10;
+        const u64 old = Le(bytes, at, 8);
+        if (old != 0) {
+            SetLe(bytes, at, old + meta.size(), 8);
+        }
+    }
+    SetLe(bytes, 0x38, blob + meta.size(), 8);
+    SetLe(bytes, 0x40, bytes.size(), 8);
+    const auto hash = Sha256(std::string_view{bytes}.substr(toc, Le(bytes, 0x10, 8)));
+    std::copy(hash.begin(), hash.end(), bytes.begin() + 0x18);
+    Put(archive, bytes);
+    const std::vector<u8> icon{0x89, 0x50, 0x4e, 0x47};
+    std::string error;
+    SECTION("Library") {
+        FileSys::Nup::MetadataEdit edit;
+        edit.icon = icon;
+        auto result = FileSys::Nup::EditNupMetadata(archive, edit, &error);
+        INFO(error);
+        REQUIRE(result == FileSys::Nup::EditResult::Success);
+    }
+    SECTION("Properties") {
+        FileSys::Nup::MetadataUpdate edit;
+        edit.icon = icon;
+        auto result = FileSys::Nup::UpdateMetadata(archive, edit, &error);
+        INFO(error);
+        REQUIRE(result == FileSys::Nup::PackResult::Success);
+    }
+    FileSys::RealVfsFilesystem real;
+    NupContainer nup{real.OpenFile(archive.string(), FileSys::OpenMode::Read)};
+    REQUIRE(nup.GetStatus() == Loader::ResultStatus::Success);
+    REQUIRE(nup.VerifyIntegrity({}) == Loader::ResultStatus::Success);
+    REQUIRE(nup.GetPackages()[0].title_name == "Before");
+    REQUIRE(nup.GetPackages()[0].icon == icon);
+    REQUIRE(PackedTree(nup.GetRomFSDir(0)) == SourceTree(root / "Base/RomFS"));
+}

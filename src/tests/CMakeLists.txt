@@ -209,6 +209,10 @@ target_compile_definitions(tests PRIVATE
 
 add_test(NAME tests COMMAND tests)
 
+add_executable(nup_metadata_tests EXCLUDE_FROM_ALL core/nup_writer.cpp)
+target_link_libraries(nup_metadata_tests PRIVATE core common video_core audio_core input_common
+    fmt::fmt OpenSSL::Crypto Catch2::Catch2WithMain ${PLATFORM_LIBRARIES})
+
 add_executable(profile_migration_tests
     common/profile_migration.cpp)
 target_link_libraries(profile_migration_tests PRIVATE common Catch2::Catch2WithMain)

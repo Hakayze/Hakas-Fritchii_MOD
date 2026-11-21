@@ -267,6 +267,7 @@ add_executable(yuzu
     data_dialog.h data_dialog.cpp data_dialog.ui
     data_widget.ui
     ryujinx_dialog.h ryujinx_dialog.cpp ryujinx_dialog.ui
+    interface_translations.cpp interface_translations.h
     main_window.h main_window.cpp main.ui
 
     configuration/system/new_user_dialog.h configuration/system/new_user_dialog.cpp configuration/system/new_user_dialog.ui
@@ -304,6 +305,15 @@ if (YUZU_CRASH_DUMPS)
     target_link_libraries(yuzu PRIVATE libbreakpad_client)
     target_compile_definitions(yuzu PRIVATE YUZU_CRASH_DUMPS)
 endif()
+
+find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
+qt_add_translation(interface_catalogs
+    "${PROJECT_SOURCE_DIR}/dist/languages/pt_BR.ts"
+    "${PROJECT_SOURCE_DIR}/dist/languages/en.ts")
+qt_add_resources(yuzu "languages"
+    PREFIX "/languages"
+    BASE "${CMAKE_CURRENT_BINARY_DIR}"
+    FILES ${interface_catalogs})
 
 if (ENABLE_RESHADE)
     target_sources(yuzu PRIVATE
@@ -430,7 +440,7 @@ if (WIN32 AND NOT YUZU_USE_BUNDLED_QT)
          CONTENT "[Paths]\nPrefix=.\nPlugins=plugins\n")
     if (WINDEPLOYQT_EXECUTABLE)
         set(YUZU_EXE_DIR "$<TARGET_FILE_DIR:yuzu>")
-        add_custom_command(TARGET yuzu POST_BUILD COMMAND ${WINDEPLOYQT_EXECUTABLE} "$<TARGET_FILE:yuzu>" --dir "${YUZU_EXE_DIR}" --libdir "${YUZU_EXE_DIR}" --plugindir "${YUZU_EXE_DIR}/plugins" --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --no-translations --verbose 0)
+        add_custom_command(TARGET yuzu POST_BUILD COMMAND ${WINDEPLOYQT_EXECUTABLE} "$<TARGET_FILE:yuzu>" --dir "${YUZU_EXE_DIR}" --libdir "${YUZU_EXE_DIR}" --plugindir "${YUZU_EXE_DIR}/plugins" --no-compiler-runtime --no-opengl-sw --no-system-d3d-compiler --verbose 0)
     else()
         message(WARNING "windeployqt not found: copy the Qt DLLs next to the executable yourself")
     endif()

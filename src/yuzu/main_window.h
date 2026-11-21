@@ -17,7 +17,6 @@
 #include <QFutureWatcher>
 #include <QPushButton>
 #include <QTimer>
-#include <QTranslator>
 #include <qaction.h>
 
 #include "common/common_types.h"
@@ -169,6 +168,8 @@ private:
     constexpr static int MaxMultiplier = 8;
 };
 
+class InterfaceTranslations;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -178,7 +179,7 @@ class MainWindow : public QMainWindow {
 public:
     void filterBarSetChecked(bool state);
     void UpdateUITheme();
-    explicit MainWindow(bool has_broken_vulkan);
+    MainWindow(bool has_broken_vulkan, InterfaceTranslations& translations);
     ~MainWindow() override;
 
     bool DropAction(QDropEvent* event);
@@ -205,6 +206,8 @@ signals:
      * system emulation handles and memory are still valid, but are about become invalid.
      */
     void EmulationStopping();
+
+    void InterfaceLanguageChanged();
 
     // Signal that tells widgets to update icons to use the current theme
     void UpdateThemedIcons();
@@ -528,7 +531,7 @@ private:
     void HideMouseCursor();
     void ShowMouseCursor();
     void OpenURL(const QUrl& url);
-    void LoadTranslation();
+    QAction* TranslatedAction(const char* source);
     void OpenPerGameConfiguration(u64 title_id, const std::string& file_name);
     bool CheckFirmwarePresence();
     void SetFirmwareVersion();
@@ -553,6 +556,7 @@ private:
                       QMessageBox::StandardButtons(QMessageBox::Yes | QMessageBox::No),
                   QMessageBox::StandardButton defaultButton = QMessageBox::NoButton);
 
+    InterfaceTranslations& translations;
     std::unique_ptr<Ui::MainWindow> ui;
 
     std::unique_ptr<DiscordRPC::DiscordInterface> discord_rpc;
@@ -625,7 +629,6 @@ private:
     // Stores what suffix to add to the FPS counter, e.g. Unlocked.
     QString m_fpsSuffix{};
 
-    UserDataMigrator user_data_migrator;
     std::unique_ptr<QtConfig> config;
     bool launched_with_game = false; ///< Started with a game path (skips the first-launch question)
 
@@ -660,7 +663,6 @@ private:
 
     HotkeyRegistry hotkey_registry;
 
-    QTranslator translator;
 
     // Install progress dialog
     QProgressDialog* install_progress = nullptr;

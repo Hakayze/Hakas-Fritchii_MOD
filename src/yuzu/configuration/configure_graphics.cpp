@@ -1706,8 +1706,8 @@ void ConfigureGraphics::UpdateWindowFilterNote() {
     QString text;
     if (filter == F::Auto) {
         text = known ? tr("Auto uses %1 for you now, and switches by itself.")
-                           .arg(bigger ? tr("Area") : tr("ScaleForce"))
-                     : tr("Area when the picture is bigger than your screen, ScaleForce when it "
+                           .arg(bigger ? tr("Area") : QStringLiteral("FSR 1"))
+                     : tr("Area when the picture is bigger than your screen, FSR 1 when it "
                           "is smaller.");
     } else {
         text = FilterProsCons(filter);
